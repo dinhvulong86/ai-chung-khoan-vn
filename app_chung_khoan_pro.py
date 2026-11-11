@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 from datetime import datetime, timedelta
-from vnstock import Vnstock
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
 import plotly.graph_objects as go
@@ -12,6 +12,25 @@ import time
 st.set_page_config(page_title="Hệ Thống AI Phân Tích Chứng Khoán VN", layout="wide")
 st.title("🚀 Hệ Thống AI Phân Tích, Khuyến Nghị & Lọc Cổ Phiếu (Pro)")
 st.markdown("Tích hợp **Mạng Nơ-ron AI (Neural Network)**, chỉ báo **RSI/MACD**, **Backtest lợi nhuận** và **Bộ lọc quét thị trường**.")
+
+# Hàm tải dữ liệu giá lịch sử trực tiếp từ API VNDIRECT (Siêu nhẹ, không cần thư viện ngoài)
+@st.cache_data(ttl=300)
+def get_stock_data(symbol, days=500):
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    url = f"https://vndirect.com.vn:{symbol}~date:gte:{start_date}~date:lte:{end_date}&size=1000"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    response = requests.get(url, headers=headers, timeout=10)
+    data = response.json().get('data', [])
+    if not data:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(data)
+    df = df[['date', 'open', 'high', 'low', 'close', 'nmVolume']].copy()
+    df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+    df = df.sort_values('time').reset_index(drop=True)
+    return df
 
 # Hàm tính các chỉ báo kỹ thuật chuẩn
 def add_technical_indicators(df):
@@ -41,11 +60,11 @@ tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Dự Đoán AI", "🔍 B�
 with tab1:
     col_input1, col_input2, col_input3, col_input4 = st.columns(4)
     with col_input1:
-        symbol = st.text_input("Nhập mã cổ phiếu (VD: MBS, FPT, HPG):", value="MBS").upper()
+        symbol = st.text_input("Nhập mã cổ phiếu (VD: MBS, FPT, HPG):", value="MBS").upper().strip()
     with col_input2:
-        days_history = st.selectbox("Dữ liệu lịch sử học (ngày):", [365, 730, 1000, 1500], index=2)
+        days_history = st.selectbox("Dữ liệu lịch sử học (ngày):", [365, 500, 730, 1000], index=2)
     with col_input3:
-        epochs = st.selectbox("Số vòng học AI (Iterations):", [100, 300, 500], index=1)
+        epochs = st.selectbox("Số vòng học AI (Iterations):", [100, 200, 300], index=1)
     with col_input4:
         st.write("")
         st.write("")
@@ -54,11 +73,7 @@ with tab1:
     if run_btn:
         with st.spinner(f"Đang tải dữ liệu và huấn luyện mạng nơ-ron AI cho mã {symbol}..."):
             try:
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=days_history)).strftime('%Y-%m-%d')
-                
-                stock = Vnstock().stock(symbol=symbol, source='VCI')
-                df = stock.quote.history(start=start_date, end=end_date, interval='1D')
+                df = get_stock_data(symbol, days=days_history)
                 
                 if df.empty or len(df) < 100:
                     st.error("Không đủ dữ liệu lịch sử cho mã này. Vui lòng kiểm tra lại mã cổ phiếu!")
@@ -81,7 +96,7 @@ with tab1:
                     
                 X, y = np.array(X), np.array(y)
                 
-                # Huấn luyện Mạng Nơ-ron Nhân Tạo (MLPRegressor) siêu nhẹ và nhanh
+                # Huấn luyện Mạng Nơ-ron Nhân Tạo (MLPRegressor)
                 model = MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=epochs, random_state=42)
                 model.fit(X, y)
                 
@@ -183,28 +198,23 @@ with tab1:
 
 # ==============================================================================
 # TAB 2: BỘ LỌC QUÉT TOÀN BỘ RỔ VN30 + MBS TÌM MÃ ĐẸP
-# ==============================================================================
 with tab2:
-    st.subheader("Quét tín hiệu kỹ thuật tự động trên rổ VN30 & MBS")
-    st.write("Hệ thống sẽ quét dữ liệu mới nhất của các cổ phiếu đầu ngành để tìm ra những mã đang thỏa mãn điều kiện **MUA** (MACD cắt lên, giá vượt MA20, RSI an toàn).")
-    
-    danh_sach_ma = [
-        'MBS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
-        'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
+st.subheader("Quét tín hiệu kỹ thuật tự động trên rổ VN30 & MBS")
+st.write("Hệ thống sẽ quét dữ liệu mới nhất của các cổ phiếu đầu ngành để tìm ra những mã đang thỏa mãn điều kiện MUA (MACD cắt lên, giá vượt MA20, RSI an toàn).")
+danh_sach_ma = [
+'MBS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
+'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
 ]
 if st.button("🔍 Bắt đầu quét thị trường ngay"):
 ket_qua_loc = []
 progress_bar = st.progress(0)
 status_text = st.empty()
-end_date = datetime.now().strftime('%Y-%m-%d')
-start_date = (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d')
 for idx, ma in enumerate(danh_sach_ma):
 status_text.text(f"Đang phân tích mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
 progress_bar.progress((idx + 1) / len(danh_sach_ma))
 try:
-stock = Vnstock().stock(symbol=ma, source='VCI')
-df_ma = stock.quote.history(start=start_date, end=end_date, interval='1D')
+df_ma = get_stock_data(ma, days=150)
 if len(df_ma) >= 60:
 df_ma = add_technical_indicators(df_ma).dropna()
 last = df_ma.iloc[-1]
@@ -224,7 +234,7 @@ ket_qua_loc.append({
 "Điểm kỹ thuật": f"{score}/4",
 "Đánh giá": trang_thai
 })
-time.sleep(0.15)
+time.sleep(0.1)
 except:
 continue
 status_text.text("✅ Hoàn tất quét dữ liệu thị trường!")

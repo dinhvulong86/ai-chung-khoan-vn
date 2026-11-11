@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
+import yfinance as yf
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
@@ -14,40 +14,26 @@ st.markdown("Tích hợp **Mạng Nơ-ron AI (Neural Network)**, chỉ báo **RS
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
-    end_ts = int(datetime.now().timestamp())
-    start_ts = int((datetime.now() - timedelta(days=days)).timestamp())
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
     
     try:
-        url_dnse = "https://entrade.com.vn"
-        params_dnse = {"symbol": symbol, "resolution": "1D", "from": start_ts, "to": end_ts}
-        res = requests.get(url_dnse, params=params_dnse, headers=headers, timeout=10)
-        data = res.json()
-        if data.get('t'):
-            df = pd.DataFrame({
-                'time': pd.to_datetime(data['t'], unit='s').strftime('%Y-%m-%d'),
-                'open': data['o'], 'high': data['h'], 'low': data['l'],
-                'close': data['c'], 'volume': data['v']
-            })
-            return df.sort_values('time').reset_index(drop=True)
+        df = yf.download(ticker_vn, start=start_date, end=end_date, progress=False)
+        if df.empty:
+            return pd.DataFrame()
+            
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        df = df.reset_index()
+        df = df.loc[:, ('Date', 'Open', 'High', 'Low', 'Close', 'Volume')].copy()
+        df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
+        df = df.dropna().sort_values('time').reset_index(drop=True)
+        return df
     except Exception:
-        pass
-
-    try:
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-        url_vnd = "https://vndirect.com.vn"
-        q_str = "code:" + symbol + "~date:gte:" + start_date + "~date:lte:" + end_date
-        res = requests.get(url_vnd, params={"sort": "date", "q": q_str, "size": 1000}, headers=headers, timeout=10)
-        data = res.json().get('data', [])
-        if data:
-            df = pd.DataFrame(data).loc[:, ('date', 'open', 'high', 'low', 'close', 'nmVolume')].copy()
-            df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-            return df.sort_values('time').reset_index(drop=True)
-    except Exception:
-        pass
-
-    return pd.DataFrame()
+        return pd.DataFrame()
 
 def add_technical_indicators(df):
     df['MA20'] = df['close'].rolling(window=20).mean()
@@ -66,7 +52,7 @@ def add_technical_indicators(df):
 def analyze_one_stock(symbol, days_history, epochs):
     df = get_stock_data(symbol, days=days_history)
     if df.empty or len(df) < 100:
-        st.error("Không đủ dữ liệu lịch sử cho mã này. Vui lòng kiểm tra lại mã cổ phiếu!")
+        st.error("Không đủ dữ liệu lịch sử cho mã này. Vui lòng kiểm tra lại mã cổ phiếu (chỉ áp dụng cho cổ phiếu niêm yết trên HOSE/HNX)!")
         return
 
     df = add_technical_indicators(df)
@@ -97,8 +83,8 @@ def analyze_one_stock(symbol, days_history, epochs):
 
     st.divider()
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Giá đóng cửa hiện tại", f"{current_price:,.2f}")
-    m2.metric("AI Dự đoán phiên tới", f"{predicted_price:,.2f}", f"{pct_change:+.2f}%")
+    m1.metric("Giá đóng cửa hiện tại", f"{current_price:,.0f} đ")
+    m2.metric("AI Dự đoán phiên tới", f"{predicted_price:,.0f} đ", f"{pct_change:+.2f}%")
     rsi_text = "Quá mua (>70)" if latest_rsi > 70 else ("Quá bán (<30)" if latest_rsi < 30 else "Trung tính")
     m3.metric("Chỉ số RSI (14)", f"{latest_rsi:.1f}", rsi_text, delta_color="off")
     macd_text = "Cắt lên (Tích cực)" if latest_macd > latest_sig else "Nằm dưới (Tiêu cực)"
@@ -156,8 +142,8 @@ def scan_market():
             prev = df_ma.iloc[-2]
             score = (1 if last['MACD'] > last['Signal_Line'] else 0) + (1 if last['close'] > last['MA20'] else 0) + (1 if 30 <= last['RSI'] <= 68 else 0) + (1 if (last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']) else 0)
             trang_thai = "🟢 TÍN HIỆU MUA ĐẸP" if score >= 3 else ("🟡 THEO DÕI" if score == 2 else "🔴 YẾU / ĐỨNG NGOÀI")
-            ket_qua_loc.append({"Mã CP": ma, "Giá hiện tại": round(float(last['close']), 2), "RSI (14)": round(float(last['RSI']), 1), "MACD": round(float(last['MACD']), 2), "Điểm kỹ thuật": f"{score}/4", "Đánh giá": trang_thai})
-            time.sleep(0.1)
+            ket_qua_loc.append({"Mã CP": ma, "Giá hiện tại (đ)": round(float(last['close']), 0), "RSI (14)": round(float(last['RSI']), 1), "MACD": round(float(last['MACD']), 2), "Điểm kỹ thuật": f"{score}/4", "Đánh giá": trang_thai})
+            time.sleep(0.05)
         except Exception:
             continue
 

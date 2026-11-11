@@ -192,15 +192,12 @@ with tab1:
     epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
     col4.write("")
     col4.write("")
-    run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True)
-
-if run_btn:
-    analyze_one_stock(symbol, days_history, epochs)
+    if col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True):
+        analyze_one_stock(symbol, days_history, epochs)
 
 with tab2:
     st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ VN30 & MBS")
     st.write("Bảng lọc sẽ phân loại rõ những mã đang có **Tín hiệu Mua đẹp** và những mã đang phát **Cảnh báo Bán / Chốt lời**.")
-    scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+    if st.button("🔍 Bắt đầu quét thị trường ngay"):
+        scan_market()
 
-if scan_btn:
-    scan_market()

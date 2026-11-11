@@ -182,6 +182,7 @@ def scan_market():
     else:
         st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 
+
 tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu Mua/Bán VN30"])
 
 with tab1:
@@ -190,15 +191,16 @@ with tab1:
     days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
     epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
     col4.write("")
-col4.write("")
-if col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True):
-with st.spinner(f"Đang tải dữ liệu và tính toán điểm Mua/Bán cho mã {symbol}..."):
-try:
-analyze_one_stock(symbol, days_history, epochs)
-except Exception as e:
-st.error(f"Lỗi xử lý dữ liệu: {e}")
+    col4.write("")
+    run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True)
+
+if run_btn:
+    analyze_one_stock(symbol, days_history, epochs)
+
 with tab2:
-st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ VN30 & MBS")
-st.write("Bảng lọc sẽ phân loại rõ những mã đang có Tín hiệu Mua đẹp và những mã đang phát Cảnh báo Bán / Chốt lời.")
-if st.button("🔍 Bắt đầu quét thị trường ngay"):
-scan_market()
+    st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ VN30 & MBS")
+    st.write("Bảng lọc sẽ phân loại rõ những mã đang có **Tín hiệu Mua đẹp** và những mã đang phát **Cảnh báo Bán / Chốt lời**.")
+    scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+
+if scan_btn:
+    scan_market()

@@ -14,18 +14,40 @@ st.markdown("Tích hợp **Mạng Nơ-ron AI (Neural Network)**, chỉ báo **RS
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    url = f"https://vndirect.com.vn:{symbol}~date:gte:{start_date}~date:lte:{end_date}&size=1000"
+    end_ts = int(datetime.now().timestamp())
+    start_ts = int((datetime.now() - timedelta(days=days)).timestamp())
     headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers, timeout=10)
-    data = response.json().get('data', [])
-    if not data:
-        return pd.DataFrame()
-    df = pd.DataFrame(data)
-    df = df.loc[:, ('date', 'open', 'high', 'low', 'close', 'nmVolume')].copy()
-    df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-    return df.sort_values('time').reset_index(drop=True)
+    
+    try:
+        url_dnse = "https://entrade.com.vn"
+        params_dnse = {"symbol": symbol, "resolution": "1D", "from": start_ts, "to": end_ts}
+        res = requests.get(url_dnse, params=params_dnse, headers=headers, timeout=10)
+        data = res.json()
+        if data.get('t'):
+            df = pd.DataFrame({
+                'time': pd.to_datetime(data['t'], unit='s').strftime('%Y-%m-%d'),
+                'open': data['o'], 'high': data['h'], 'low': data['l'],
+                'close': data['c'], 'volume': data['v']
+            })
+            return df.sort_values('time').reset_index(drop=True)
+    except Exception:
+        pass
+
+    try:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        url_vnd = "https://vndirect.com.vn"
+        q_str = "code:" + symbol + "~date:gte:" + start_date + "~date:lte:" + end_date
+        res = requests.get(url_vnd, params={"sort": "date", "q": q_str, "size": 1000}, headers=headers, timeout=10)
+        data = res.json().get('data', [])
+        if data:
+            df = pd.DataFrame(data).loc[:, ('date', 'open', 'high', 'low', 'close', 'nmVolume')].copy()
+            df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+            return df.sort_values('time').reset_index(drop=True)
+    except Exception:
+        pass
+
+    return pd.DataFrame()
 
 def add_technical_indicators(df):
     df['MA20'] = df['close'].rolling(window=20).mean()

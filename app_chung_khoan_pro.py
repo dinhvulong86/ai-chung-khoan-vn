@@ -48,9 +48,6 @@ def add_technical_indicators(df):
 
 tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Dự Đoán AI", "🔍 Bộ Lọc Quét Rổ VN30 & MBS"])
 
-# ==============================================================================
-# TAB 1: PHÂN TÍCH MÃ CỔ PHIẾU CHI TIẾT + AI NEURAL NETWORK + BACKTEST
-# ==============================================================================
 with tab1:
     col_input1, col_input2, col_input3, col_input4 = st.columns(4)
     with col_input1:
@@ -82,7 +79,7 @@ with tab1:
                 scaled_data = scaler.fit_transform(data)
                 
                 look_back = 30
-                X, y = [], []
+                X, y = list(), list()
                 for i in range(look_back, len(scaled_data)):
                     X.append(scaled_data[i-look_back:i].flatten())
                     y.append(scaled_data[i, 0])
@@ -118,7 +115,7 @@ with tab1:
 
                 st.subheader("🤖 Kết luận & Khuyến nghị từ hệ thống")
                 diem = 0
-                ly_do = []
+                ly_do = list()
                 
                 if pct_change > 0.5:
                     diem += 1
@@ -183,9 +180,6 @@ with tab1:
             except Exception as e:
                 st.error(f"Lỗi xử lý dữ liệu: {e}")
 
-# ==============================================================================
-# TAB 2: BỘ LỌC QUÉT TOÀN BỘ RỔ VN30 + MBS TÌM MÃ ĐẸP
-# ==============================================================================
 with tab2:
     st.subheader("Quét tín hiệu kỹ thuật tự động trên rổ VN30 & MBS")
     st.write("Hệ thống sẽ quét dữ liệu mới nhất của các cổ phiếu đầu ngành để tìm ra những mã đang thỏa mãn điều kiện **MUA** (MACD cắt lên, giá vượt MA20, RSI an toàn).")
@@ -196,15 +190,16 @@ with tab2:
         'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
     )
     
-if st.button("🔍 Bắt đầu quét thị trường ngay"):
-ket_qua_loc = []
-progress_bar = st.progress(0)
-status_text = st.empty()
-for idx, ma in enumerate(danh_sach_ma):
-status_text.text(f"Đang phân tích mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
-progress_bar.progress((idx + 1) / len(danh_sach_ma))
-try:
-df_ma = get_stock_data(ma, days=150)
+    if st.button("🔍 Bắt đầu quét thị trường ngay"):
+        ket_qua_loc = list()
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for idx, ma in enumerate(danh_sach_ma):
+            status_text.text(f"Đang phân tích mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
+            progress_bar.progress((idx + 1) / len(danh_sach_ma))
+            try:
+                df_ma = get_stock_data(ma, days=150)
 if len(df_ma) >= 60:
 df_ma = add_technical_indicators(df_ma).dropna()
 last = df_ma.iloc[-1]
@@ -215,6 +210,8 @@ score += 1
 if last['close'] > last['MA20']:
 score += 1
 if 30 <= last['RSI'] <= 68:
+score += 1
+if last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']:
 score += 1
 trang_thai = "🟢 TÍN HIỆU MUA ĐẸP" if score >= 3 else ("🟡 THEO DÕI" if score == 2 else "🔴 YẾU / ĐỨNG NGOÀI")
 ket_qua_loc.append({

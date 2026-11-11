@@ -3,5 +3,4 @@ vnstock
 pandas
 numpy
 scikit-learn
-tensorflow-cpu
 plotly

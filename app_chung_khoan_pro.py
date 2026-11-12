@@ -11,7 +11,7 @@ import time
 
 st.set_page_config(page_title="Hệ Thống AI Phân Tích Chứng Khoán VN", layout="wide")
 st.title("🚀 Hệ Thống AI Phân Tích, Khuyến Nghị Mua/Bán & Lọc Cổ Phiếu (Pro)")
-st.markdown("Hỗ trợ đầy đủ **3 sàn HOSE, HNX, UPCOM** | Tích hợp **AI Neural Network**, **RSI/MACD** và **Điểm Mua/Bán**.")
+st.markdown("Hỗ trợ đầy đủ **3 sàn HOSE, HNX, UPCOM** | Tích hợp **AI Neural Network**, **Nhận diện Sideway**, **RSI/MACD** và **Điểm Mua/Bán**.")
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
@@ -21,7 +21,6 @@ def get_stock_data(symbol, days=500):
         'Accept': 'application/json'
     }
 
-    # Nguồn 1: API lịch sử giá của TCBS (Mở kết nối quốc tế, đầy đủ 100% HNX, HOSE, UPCOM)
     try:
         count_back = min(int(days * 0.72), 1000)
         url_tcbs = "https://tcbs.com.vn"
@@ -45,7 +44,6 @@ def get_stock_data(symbol, days=500):
     except Exception:
         pass
 
-    # Nguồn 2: Dự phòng qua Yahoo Finance (.VN)
     try:
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         end_date = datetime.now().strftime('%Y-%m-%d')
@@ -67,6 +65,9 @@ def get_stock_data(symbol, days=500):
 def add_technical_indicators(df):
     df['MA20'] = df['close'].rolling(window=20).mean()
     df['MA50'] = df['close'].rolling(window=50).mean()
+    df['High_20'] = df['high'].rolling(window=20).max()
+    df['Low_20'] = df['low'].rolling(window=20).min()
+    df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20']) * 100
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -110,7 +111,11 @@ def analyze_one_stock(symbol, days_history, epochs):
     latest_macd = float(df_clean['MACD'].iloc[-1])
     latest_sig = float(df_clean['Signal_Line'].iloc[-1])
     latest_ma20 = float(df_clean['MA20'].iloc[-1])
+    range_20 = float(df_clean['Range_20_Pct'].iloc[-1])
+    high_20 = float(df_clean['High_20'].iloc[-1])
+    low_20 = float(df_clean['Low_20'].iloc[-1])
 
+    is_sideway = (range_20 < 9.0) and (abs(current_price - latest_ma20) / latest_ma20 < 0.025)
     gia_chot_loi = current_price * 1.10
     gia_cat_lo = min(current_price * 0.93, latest_ma20 * 0.98)
 
@@ -127,7 +132,9 @@ def analyze_one_stock(symbol, days_history, epochs):
     diem_mua = (1 if pct_change > 0.5 else 0) + (1 if latest_macd > latest_sig else 0) + (1 if latest_rsi < 35 else 0) + (1 if current_price > latest_ma20 else 0)
     diem_ban = (1 if pct_change < -0.5 else 0) + (1 if latest_macd <= latest_sig else 0) + (2 if latest_rsi > 70 else 0) + (1 if current_price <= latest_ma20 else 0)
 
-    if diem_ban >= 3:
+    if is_sideway:
+        st.warning(f"⏸️ TRẠNG THÁI SIDEWAY (ĐI NGANG TÍCH LŨY): Biên độ 20 phiên chỉ dao động {range_20:.1f}% (trong hộp {low_20:,.0f} đ – {high_20:,.0f} đ). Hạn chế mua đuổi, chỉ canh mua gom sát hỗ trợ {low_20:,.0f} đ và bán lướt sóng gần kháng cự {high_20:,.0f} đ.")
+    elif diem_ban >= 3:
         st.error(f"🔴 KHUYẾN NGHỊ: BÁN HẠ TỶ TRỌNG / CHỐT LỜI NGAY (Điểm rủi ro BÁN: {diem_ban}/5)")
     elif diem_mua >= 3 and diem_ban <= 1:
         st.success(f"🟢 KHUYẾN NGHỊ: CÂN NHẮC MUA MỚI (Điểm ủng hộ MUA: {diem_mua}/4)")
@@ -177,60 +184,61 @@ def scan_single_stock(ma):
         prev = df_ma.iloc[-2]
         buy_score = (1 if last['MACD'] > last['Signal_Line'] else 0) + (1 if last['close'] > last['MA20'] else 0) + (1 if 30 <= last['RSI'] <= 68 else 0) + (1 if (last['MACD'] > last['Signal_Line'] and prev['MACD'] <= prev['Signal_Line']) else 0)
         sell_score = (1 if last['MACD'] < last['Signal_Line'] else 0) + (1 if last['close'] < last['MA20'] else 0) + (1 if last['RSI'] > 70 else 0)
-        if buy_score >= 3 and sell_score == 0:
-            trang_thai = "🟢 TÍN HIỆU MUA ĐẸP"
-        elif sell_score >= 2 or last['RSI'] > 72:
-            trang_thai = "🔴 CẢNH BÁO BÁN / CHỐT LỜI"
-        elif buy_score == 2:
-            trang_thai = "🟡 NẮM GIỮ / THEO DÕI"
-        else:
-            trang_thai = "⚪ ĐỨNG NGOÀI"
-        return {
-            "Mã CP": ma,
-            "Giá hiện tại (đ)": round(float(last['close']), 0),
-            "Mốc Cắt lỗ (đ)": round(float(last['close']) * 0.93, 0),
-            "RSI (14)": round(float(last['RSI']), 1),
-            "Điểm Mua": f"{buy_score}/4",
-            "Cảnh báo Bán": f"{sell_score}/3",
-            "Khuyến nghị": trang_thai
-        }
-    except Exception:
-        return None
+        range_20 = float(last['Range_20_Pct'])
+        is_sideway = (range_20 < 9.0) and (abs(float(last['close']) - float(last['MA20'])) / float(last['MA20']) < 0.025)
 
+        if is_sideway:
+            trang_thai = "⏸️ SIDEWAY (ĐI NGANG)"
+elif buy_score >= 3 and sell_score == 0:
+trang_thai = "🟢 TÍN HIỆU MUA ĐẸP"
+elif sell_score >= 2 or last['RSI'] > 72:
+trang_thai = "🔴 CẢNH BÁO BÁN / CHỐT LỜI"
+elif buy_score == 2:
+trang_thai = "🟡 NẮM GIỮ / THEO DÕI"
+else:
+trang_thai = "⚪ ĐỨNG NGOÀI"
+return {
+"Mã CP": ma,
+"Giá hiện tại (đ)": round(float(last['close']), 0),
+"Mốc Cắt lỗ (đ)": round(float(last['close']) * 0.93, 0),
+"Biên độ 20P (%)": round(range_20, 1),
+"RSI (14)": round(float(last['RSI']), 1),
+"Điểm Mua": f"{buy_score}/4",
+"Cảnh báo Bán": f"{sell_score}/3",
+"Khuyến nghị": trang_thai
+}
+except Exception:
+return None
 tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu HOSE & HNX"])
-
 with tab1:
-    col1, col2, col3, col4 = st.columns(4)
-symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: MBS, SHS, PVS, FPT):", value="MBS").upper().strip()
+col1, col2, col3, col4 = st.columns(4)
+symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: CEO, MBS, SHS, FPT):", value="MBS").upper().strip()
 days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
 epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
 col4.write("")
 col4.write("")
 run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True)
 if run_btn:
-    analyze_one_stock(symbol, days_history, epochs)
-
+analyze_one_stock(symbol, days_history, epochs)
 with tab2:
-    st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
-    st.write("Danh sách quét gồm các cổ phiếu thanh khoản cao sàn **HNX** (`MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS`) cùng rổ **VN30**.")
-    scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
-
+st.subheader("Quét tín hiệu Mua, Bán & Sideway tự động trên rổ HNX & VN30")
+st.write("Danh sách quét gồm các cổ phiếu thanh khoản cao sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) cùng rổ VN30.")
+scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
 if scan_btn:
-    danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    ket_qua_loc = []
-    for idx, ma in enumerate(danh_sach_ma):
-        status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
-        progress_bar.progress((idx + 1) / len(danh_sach_ma))
-        res = scan_single_stock(ma)
-        if res is not None:
-            ket_qua_loc.append(res)
-        time.sleep(0.1)
-    status_text.text("✅ Hoàn tất quét tín hiệu Mua & Bán trên cả HOSE và HNX!")
-    if ket_qua_loc:
-        df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
-        st.dataframe(df_res, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
-
+danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
+progress_bar = st.progress(0)
+status_text = st.empty()
+ket_qua_loc = []
+for idx, ma in enumerate(danh_sach_ma):
+status_text.text(f"Đang phân tích tín hiệu mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
+progress_bar.progress((idx + 1) / len(danh_sach_ma))
+res = scan_single_stock(ma)
+if res is not None:
+ket_qua_loc.append(res)
+time.sleep(0.1)
+status_text.text("✅ Hoàn tất quét tín hiệu Mua, Bán & Sideway trên cả HOSE và HNX!")
+if ket_qua_loc:
+df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
+st.dataframe(df_res, use_container_width=True, hide_index=True)
+else:
+st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")

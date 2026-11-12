@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 import yfinance as yf
-from vnstock import Vnstock
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
@@ -15,28 +15,42 @@ st.markdown("Hỗ trợ đầy đủ **3 sàn HOSE, HNX, UPCOM** | Tích hợp *
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    
-    # Nguồn 1: Dùng vnstock (Đầy đủ 100% dữ liệu sàn HNX, HOSE, UPCOM)
-    for src in ['TCBS', 'VCI', 'MSN']:
-        try:
-            stock = Vnstock().stock(symbol=symbol, source=src)
-            df = stock.quote.history(start=start_date, end=end_date, interval='1D')
-            if df is not None and not df.empty and len(df) >= 30:
-                df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
-                df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
-                for col in ['open', 'high', 'low', 'close']:
-                    if df[col].iloc[-1] < 1000:
-                        df[col] = df[col] * 1000
-                return df.dropna().sort_values('time').reset_index(drop=True)
-        except Exception:
-            continue
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+    # Nguồn 1: API lịch sử giá công khai của CafeF (Mở kết nối quốc tế, đầy đủ 100% HNX, HOSE, UPCOM)
+    try:
+        url_cafef = "https://cafef.vn"
+        params_cafef = {
+            "Symbol": symbol,
+            "StartDate": start_date.strftime('%d/%m/%Y'),
+            "EndDate": end_date.strftime('%d/%m/%Y'),
+            "PageIndex": 1,
+            "PageSize": 1000
+        }
+        res = requests.get(url_cafef, params=params_cafef, headers=headers, timeout=10)
+        json_data = res.json()
+        items = json_data.get('Data', {}).get('Data', [])
+        if items and len(items) >= 30:
+            records = []
+            for it in items:
+                dt_str = datetime.strptime(it['Ngay'], '%d/%m/%Y').strftime('%Y-%m-%d')
+                o = float(it['GiaMoCua']) * 1000
+                h = float(it['GiaCaoNhat']) * 1000
+                l = float(it['GiaThapNhat']) * 1000
+                c = float(it['GiaDongCua']) * 1000
+                v = float(it['KhoiLuongKhopLenh'])
+                records.append({'time': dt_str, 'open': o, 'high': h, 'low': l, 'close': c, 'volume': v})
+            df = pd.DataFrame(records).dropna().sort_values('time').reset_index(drop=True)
+            return df
+    except Exception:
+        pass
 
     # Nguồn 2: Dự phòng qua Yahoo Finance (.VN)
     try:
         ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
-        df = yf.download(ticker_vn, start=start_date, end=end_date, progress=False)
+        df = yf.download(ticker_vn, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
@@ -184,16 +198,15 @@ def scan_single_stock(ma):
         return None
 
 def scan_market():
-    # Danh sách bao gồm cả các mã tiêu biểu sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) và rổ VN30
-    danh_sach_ma = (
-        'MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS',
-        'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
-        'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
-        'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
-    )
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    ket_qua_loc = []
+danh_sach_ma = (
+'MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS',
+'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
+'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
+'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
+)
+progress_bar = st.progress(0)
+status_text = st.empty()
+ket_qua_loc = []
 for idx, ma in enumerate(danh_sach_ma):
 status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
 progress_bar.progress((idx + 1) / len(danh_sach_ma))

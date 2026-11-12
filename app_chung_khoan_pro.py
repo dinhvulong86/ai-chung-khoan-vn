@@ -15,39 +15,42 @@ st.markdown("Hỗ trợ đầy đủ **3 sàn HOSE, HNX, UPCOM** | Tích hợp *
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=days)
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    end_ts = int(datetime.now().timestamp())
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json'
+    }
 
+    # Nguồn 1: API lịch sử giá của TCBS (Mở kết nối quốc tế, đầy đủ 100% HNX, HOSE, UPCOM)
     try:
-        url_cafef = "https://cafef.vn"
-        params_cafef = {
-            "Symbol": symbol,
-            "StartDate": start_date.strftime('%d/%m/%Y'),
-            "EndDate": end_date.strftime('%d/%m/%Y'),
-            "PageIndex": 1,
-            "PageSize": 1000
+        count_back = min(int(days * 0.72), 1000)
+        url_tcbs = "https://tcbs.com.vn"
+        params_tcbs = {
+            "ticker": symbol,
+            "type": "stock",
+            "resolution": "D",
+            "to": end_ts,
+            "countBack": count_back
         }
-        res = requests.get(url_cafef, params=params_cafef, headers=headers, timeout=10)
-        json_data = res.json()
-        items = json_data.get('Data', {}).get('Data', [])
-        if items and len(items) >= 30:
-            records = []
-            for it in items:
-                dt_str = datetime.strptime(it['Ngay'], '%d/%m/%Y').strftime('%Y-%m-%d')
-                o = float(it['GiaMoCua']) * 1000
-                h = float(it['GiaCaoNhat']) * 1000
-                l = float(it['GiaThapNhat']) * 1000
-                c = float(it['GiaDongCua']) * 1000
-                v = float(it['KhoiLuongKhopLenh'])
-                records.append({'time': dt_str, 'open': o, 'high': h, 'low': l, 'close': c, 'volume': v})
-            return pd.DataFrame(records).dropna().sort_values('time').reset_index(drop=True)
+        res = requests.get(url_tcbs, params=params_tcbs, headers=headers, timeout=10)
+        data = res.json().get('data', [])
+        if data and len(data) >= 30:
+            df = pd.DataFrame(data)
+            df['time'] = pd.to_datetime(df['tradingDate']).dt.strftime('%Y-%m-%d')
+            df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
+            for col in ['open', 'high', 'low', 'close']:
+                if df[col].iloc[-1] < 1000:
+                    df[col] = df[col] * 1000
+            return df.dropna().sort_values('time').reset_index(drop=True)
     except Exception:
         pass
 
+    # Nguồn 2: Dự phòng qua Yahoo Finance (.VN)
     try:
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        end_date = datetime.now().strftime('%Y-%m-%d')
         ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
-        df = yf.download(ticker_vn, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
+        df = yf.download(ticker_vn, start=start_date, end=end_date, progress=False)
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)

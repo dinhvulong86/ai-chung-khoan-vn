@@ -209,9 +209,5 @@ ________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ____else:
 ________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 """
-clean_lines = []
-for line in raw_code.strip().splitlines():
-stripped = line.lstrip('_')
-count = len(line) - len(stripped)
-clean_lines.append((' ' * count) + stripped)
-exec('\n'.join(clean_lines))
+exec('\n'.join((' ' * (len(l) - len(l.lstrip('_')))) + l.lstrip('_') for l in raw_code.strip().splitlines()))
+

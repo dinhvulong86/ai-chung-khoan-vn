@@ -194,7 +194,23 @@ def scan_single_stock(ma):
     except Exception:
         return None
 
-def scan_market():
+tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu HOSE & HNX"])
+
+with tab1:
+    col1, col2, col3, col4 = st.columns(4)
+symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: MBS, SHS, PVS, FPT):", value="MBS").upper().strip()
+days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
+epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
+col4.write("")
+col4.write("")
+run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True)
+if run_btn:
+analyze_one_stock(symbol, days_history, epochs)
+with tab2:
+st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
+st.write("Danh sách quét gồm các cổ phiếu thanh khoản cao sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) cùng rổ VN30.")
+scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+if scan_btn:
 danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
 progress_bar = st.progress(0)
 status_text = st.empty()
@@ -212,18 +228,3 @@ df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm M
 st.dataframe(df_res, use_container_width=True, hide_index=True)
 else:
 st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
-tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu HOSE & HNX"])
-with tab1:
-col1, col2, col3, col4 = st.columns(4)
-symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: MBS, SHS, PVS, FPT):", value="MBS").upper().strip()
-days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
-epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
-col4.write("")
-col4.write("")
-if col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True):
-analyze_one_stock(symbol, days_history, epochs)
-with tab2:
-st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
-st.write("Danh sách quét đã bổ sung các cổ phiếu thanh khoản cao sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) cùng rổ VN30.")
-if st.button("🔍 Bắt đầu quét thị trường ngay"):
-scan_market()

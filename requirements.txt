@@ -3,6 +3,6 @@ pandas
 numpy
 scikit-learn
 plotly
-requests
 yfinance
-vnstock
+requests
+

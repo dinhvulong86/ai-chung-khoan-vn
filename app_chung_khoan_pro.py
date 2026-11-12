@@ -205,26 +205,29 @@ col4.write("")
 col4.write("")
 run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True)
 if run_btn:
-analyze_one_stock(symbol, days_history, epochs)
+    analyze_one_stock(symbol, days_history, epochs)
+
 with tab2:
-st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
-st.write("Danh sách quét gồm các cổ phiếu thanh khoản cao sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) cùng rổ VN30.")
-scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+    st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
+    st.write("Danh sách quét gồm các cổ phiếu thanh khoản cao sàn **HNX** (`MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS`) cùng rổ **VN30**.")
+    scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+
 if scan_btn:
-danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
-progress_bar = st.progress(0)
-status_text = st.empty()
-ket_qua_loc = []
-for idx, ma in enumerate(danh_sach_ma):
-status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
-progress_bar.progress((idx + 1) / len(danh_sach_ma))
-res = scan_single_stock(ma)
-if res is not None:
-ket_qua_loc.append(res)
-time.sleep(0.1)
-status_text.text("✅ Hoàn tất quét tín hiệu Mua & Bán trên cả HOSE và HNX!")
-if ket_qua_loc:
-df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
-st.dataframe(df_res, use_container_width=True, hide_index=True)
-else:
-st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
+    danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    ket_qua_loc = []
+    for idx, ma in enumerate(danh_sach_ma):
+        status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
+        progress_bar.progress((idx + 1) / len(danh_sach_ma))
+        res = scan_single_stock(ma)
+        if res is not None:
+            ket_qua_loc.append(res)
+        time.sleep(0.1)
+    status_text.text("✅ Hoàn tất quét tín hiệu Mua & Bán trên cả HOSE và HNX!")
+    if ket_qua_loc:
+        df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
+        st.dataframe(df_res, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
+

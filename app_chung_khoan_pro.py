@@ -19,7 +19,6 @@ def get_stock_data(symbol, days=500):
     start_date = end_date - timedelta(days=days)
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-    # Nguồn 1: API lịch sử giá công khai của CafeF (Mở kết nối quốc tế, đầy đủ 100% HNX, HOSE, UPCOM)
     try:
         url_cafef = "https://cafef.vn"
         params_cafef = {
@@ -42,12 +41,10 @@ def get_stock_data(symbol, days=500):
                 c = float(it['GiaDongCua']) * 1000
                 v = float(it['KhoiLuongKhopLenh'])
                 records.append({'time': dt_str, 'open': o, 'high': h, 'low': l, 'close': c, 'volume': v})
-            df = pd.DataFrame(records).dropna().sort_values('time').reset_index(drop=True)
-            return df
+            return pd.DataFrame(records).dropna().sort_values('time').reset_index(drop=True)
     except Exception:
         pass
 
-    # Nguồn 2: Dự phòng qua Yahoo Finance (.VN)
     try:
         ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
         df = yf.download(ticker_vn, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
@@ -198,12 +195,7 @@ def scan_single_stock(ma):
         return None
 
 def scan_market():
-danh_sach_ma = (
-'MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS',
-'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
-'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
-'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
-)
+danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
 progress_bar = st.progress(0)
 status_text = st.empty()
 ket_qua_loc = []

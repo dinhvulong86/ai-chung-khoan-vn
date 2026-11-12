@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+from vnstock import Vnstock
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
@@ -10,26 +11,44 @@ import time
 
 st.set_page_config(page_title="Hệ Thống AI Phân Tích Chứng Khoán VN", layout="wide")
 st.title("🚀 Hệ Thống AI Phân Tích, Khuyến Nghị Mua/Bán & Lọc Cổ Phiếu (Pro)")
-st.markdown("Tích hợp **Mạng Nơ-ron AI**, chỉ báo **RSI/MACD**, **Điểm Mua - Chốt Lời - Cắt Lỗ** và **Bộ lọc quét thị trường**.")
+st.markdown("Hỗ trợ đầy đủ **3 sàn HOSE, HNX, UPCOM** | Tích hợp **AI Neural Network**, **RSI/MACD** và **Điểm Mua/Bán**.")
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
+    
+    # Nguồn 1: Dùng vnstock (Đầy đủ 100% dữ liệu sàn HNX, HOSE, UPCOM)
+    for src in ['TCBS', 'VCI', 'MSN']:
+        try:
+            stock = Vnstock().stock(symbol=symbol, source=src)
+            df = stock.quote.history(start=start_date, end=end_date, interval='1D')
+            if df is not None and not df.empty and len(df) >= 30:
+                df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
+                df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
+                for col in ['open', 'high', 'low', 'close']:
+                    if df[col].iloc[-1] < 1000:
+                        df[col] = df[col] * 1000
+                return df.dropna().sort_values('time').reset_index(drop=True)
+        except Exception:
+            continue
+
+    # Nguồn 2: Dự phòng qua Yahoo Finance (.VN)
     try:
+        ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
         df = yf.download(ticker_vn, start=start_date, end=end_date, progress=False)
-        if df.empty:
-            return pd.DataFrame()
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df = df.reset_index()
-        df = df.loc[:, ('Date', 'Open', 'High', 'Low', 'Close', 'Volume')].copy()
-        df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-        df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
-        return df.dropna().sort_values('time').reset_index(drop=True)
+        if not df.empty:
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df = df.reset_index()
+            df = df.loc[:, ('Date', 'Open', 'High', 'Low', 'Close', 'Volume')].copy()
+            df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+            df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
+            return df.dropna().sort_values('time').reset_index(drop=True)
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    return pd.DataFrame()
 
 def add_technical_indicators(df):
     df['MA20'] = df['close'].rolling(window=20).mean()
@@ -48,7 +67,7 @@ def add_technical_indicators(df):
 def analyze_one_stock(symbol, days_history, epochs):
     df = get_stock_data(symbol, days=days_history)
     if df.empty or len(df) < 100:
-        st.error("Không đủ dữ liệu lịch sử cho mã này. Vui lòng kiểm tra lại mã cổ phiếu!")
+        st.error(f"Không đủ dữ liệu lịch sử cho mã {symbol}. Vui lòng kiểm tra lại mã cổ phiếu!")
         return
 
     df = add_technical_indicators(df)
@@ -115,7 +134,9 @@ def analyze_one_stock(symbol, days_history, epochs):
     df_bt['Daily_Return'] = df_bt['close'].pct_change()
     df_bt['Strategy_Return'] = df_bt['Position'].shift(1) * df_bt['Daily_Return']
     total_strategy_return = (1 + df_bt['Strategy_Return'].fillna(0)).prod() - 1
-    total_hold_return = (float(df_bt['close'].iloc[-1]) / float(df_bt['close'].iloc[0])) - 1
+    first_close = float(df_bt['close'].head(1).item())
+    last_close = float(df_bt['close'].tail(1).item())
+    total_hold_return = (last_close / first_close) - 1
 
     bt1, bt2 = st.columns(2)
     bt1.info(f"**Lợi nhuận khi tuân thủ điểm Mua & Bán của hệ thống:** `{total_strategy_return*100:+.2f}%`")
@@ -163,41 +184,41 @@ def scan_single_stock(ma):
         return None
 
 def scan_market():
-    danh_sach_ma = ('MBS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
+    # Danh sách bao gồm cả các mã tiêu biểu sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) và rổ VN30
+    danh_sach_ma = (
+        'MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS',
+        'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB',
+        'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI',
+        'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE'
+    )
     progress_bar = st.progress(0)
     status_text = st.empty()
     ket_qua_loc = []
-    for idx, ma in enumerate(danh_sach_ma):
-        status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
-        progress_bar.progress((idx + 1) / len(danh_sach_ma))
-        res = scan_single_stock(ma)
-        if res is not None:
-            ket_qua_loc.append(res)
-        time.sleep(0.05)
-
-    status_text.text("✅ Hoàn tất quét tín hiệu Mua & Bán toàn thị trường!")
-    if ket_qua_loc:
-        df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
-        st.dataframe(df_res, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
-
-
-tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu Mua/Bán VN30"])
-
+for idx, ma in enumerate(danh_sach_ma):
+status_text.text(f"Đang phân tích tín hiệu Mua/Bán mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
+progress_bar.progress((idx + 1) / len(danh_sach_ma))
+res = scan_single_stock(ma)
+if res is not None:
+ket_qua_loc.append(res)
+time.sleep(0.1)
+status_text.text("✅ Hoàn tất quét tín hiệu Mua & Bán trên cả HOSE và HNX!")
+if ket_qua_loc:
+df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
+st.dataframe(df_res, use_container_width=True, hide_index=True)
+else:
+st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
+tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Tín Hiệu HOSE & HNX"])
 with tab1:
-    col1, col2, col3, col4 = st.columns(4)
-    symbol = col1.text_input("Nhập mã cổ phiếu (VD: MBS, FPT, HPG):", value="MBS").upper().strip()
-    days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
-    epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
-    col4.write("")
-    col4.write("")
-    if col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True):
-        analyze_one_stock(symbol, days_history, epochs)
-
+col1, col2, col3, col4 = st.columns(4)
+symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: MBS, SHS, PVS, FPT):", value="MBS").upper().strip()
+days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
+epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
+col4.write("")
+col4.write("")
+if col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=True):
+analyze_one_stock(symbol, days_history, epochs)
 with tab2:
-    st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ VN30 & MBS")
-    st.write("Bảng lọc sẽ phân loại rõ những mã đang có **Tín hiệu Mua đẹp** và những mã đang phát **Cảnh báo Bán / Chốt lời**.")
-    if st.button("🔍 Bắt đầu quét thị trường ngay"):
-        scan_market()
-
+st.subheader("Quét tín hiệu Mua & Cảnh báo Bán tự động trên rổ HNX & VN30")
+st.write("Danh sách quét đã bổ sung các cổ phiếu thanh khoản cao sàn HNX (MBS, SHS, CEO, PVS, IDC, HUT, TNG, VCS) cùng rổ VN30.")
+if st.button("🔍 Bắt đầu quét thị trường ngay"):
+scan_market()

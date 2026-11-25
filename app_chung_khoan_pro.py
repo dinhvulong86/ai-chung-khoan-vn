@@ -348,7 +348,7 @@ with tab3:
 ____st.subheader("📝 Nhật Ký Theo Dõi & Tự Động Chấm Điểm Hiệu Quả Phần Mềm")
 ____st.write("Lưu các mã phần mềm báo Mua đẹp / Bùng nổ Vol vào đây để hệ thống tự động đối chiếu giá thị trường hàng ngày và tính lãi/lỗ thực tế (đã trừ sẵn 0,3% thuế phí MBS).")
 ____with st.form("form_them_ma"):
-________fc1, fc2, fc3 = st.columns()
+________fc1, fc2, fc3 = st.columns(3)
 ________ma_luu = fc1.text_input("Mã cổ phiếu muốn lưu:", placeholder="VD: HAG, MBS, FPT").upper().strip()
 ________ghi_chu = fc2.text_input("Ghi chú tín hiệu:", value="Bùng nổ Vol + Mua")
 ________fc3.write("")

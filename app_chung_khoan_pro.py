@@ -63,33 +63,40 @@ ____________if intra_data:
 ________________prices = [float(x['p']) * (1000 if float(x['p']) < 1000 else 1) for x in intra_data if x.get('p')]
 ________________vols = sum(float(x['v']) for x in intra_data if x.get('v'))
 ________________if prices:
-____________________new_row = pd.DataFrame([{'time': today_str, 'open': prices[-1], 'high': max(prices), 'low': min(prices), 'close': prices, 'volume': vols}])
+____________________new_row = pd.DataFrame([{'time': today_str, 'open': prices[-1], 'high': max(prices), 'low': min(prices), 'close': prices[0], 'volume': vols}])
 ____________________df = pd.concat([df, new_row], ignore_index=True)
 ________except Exception:
 ____________pass
 
 ____return df
 
+@st.cache_data(ttl=600)
+def get_dynamic_top_tickers(fallback_list):
+____try:
+________url = "https://tcbs.com.vn"
+________headers = {'User-Agent': 'Mozilla/5.0'}
+________res = requests.get(url, headers=headers, timeout=6).json()
+________items = res.get('data', [])
+________tickers = [x['ticker'] for x in items if x.get('ticker') and len(x['ticker']) == 3]
+________if len(tickers) >= 30:
+____________return tickers
+____except Exception:
+________pass
+____return list(fallback_list)
+
 def add_technical_indicators(df):
-____# 1. MA20, MA50 & Bollinger Bands (20, 2)
 ____df['MA20'] = df['close'].rolling(window=20).mean()
 ____df['MA50'] = df['close'].rolling(window=50).mean()
 ____df['STD20'] = df['close'].rolling(window=20).std()
 ____df['BB_Upper'] = df['MA20'] + (2 * df['STD20'])
 ____df['BB_Lower'] = df['MA20'] - (2 * df['STD20'])
-____
-____# 2. Đột biến Khối lượng (Volume Ratio so với MA20)
 ____df['Vol_MA20'] = df['volume'].rolling(window=20).mean()
 ____df['Vol_Ratio'] = (df['volume'] / df['Vol_MA20'].replace(0, np.nan)) * 100
-____
-____# 3. Chỉ báo ATR (14) - Đo biên độ biến động thực để tính Cắt lỗ động
 ____tr1 = df['high'] - df['low']
 ____tr2 = (df['high'] - df['close'].shift(1)).abs()
 ____tr3 = (df['low'] - df['close'].shift(1)).abs()
 ____df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 ____df['ATR'] = df['TR'].rolling(window=14).mean()
-____
-____# 4. Hệ thống Mây Ichimoku (9, 26, 52)
 ____high_9 = df['high'].rolling(window=9).max()
 ____low_9 = df['low'].rolling(window=9).min()
 ____df['Tenkan'] = (high_9 + low_9) / 2
@@ -100,13 +107,9 @@ ____df['Senkou_A'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
 ____high_52 = df['high'].rolling(window=52).max()
 ____low_52 = df['low'].rolling(window=52).min()
 ____df['Senkou_B'] = ((high_52 + low_52) / 2).shift(26)
-____
-____# 5. Biên độ hộp 20 phiên nhận diện Sideway
 ____df['High_20'] = df['high'].rolling(window=20).max()
 ____df['Low_20'] = df['low'].rolling(window=20).min()
 ____df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20']) * 100
-____
-____# 6. RSI (14) & MFI (14)
 ____delta = df['close'].diff()
 ____gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
 ____loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -118,8 +121,6 @@ ____pos_mf = np.where(tp > tp.shift(1), raw_mf, 0)
 ____neg_mf = np.where(tp < tp.shift(1), raw_mf, 0)
 ____mfr = pd.Series(pos_mf).rolling(window=14).sum() / pd.Series(neg_mf).rolling(window=14).sum().replace(0, np.nan)
 ____df['MFI'] = 100 - (100 / (1 + mfr))
-____
-____# 7. MACD (12, 26, 9)
 ____exp1 = df['close'].ewm(span=12, adjust=False).mean()
 ____exp2 = df['close'].ewm(span=26, adjust=False).mean()
 ____df['MACD'] = exp1 - exp2
@@ -172,7 +173,6 @@ ____is_sideway = (range_20 < 9.5) and (abs(current_price - latest_ma20) / latest
 ____is_bull_trap = (current_price > prev_close * 1.02) and (vol_ratio < 75.0) and (latest_rsi > 65)
 ____is_vol_breakout = (current_price > prev_close * 1.015) and (vol_ratio >= 150.0) and (current_price > latest_ma20)
 
-____# Tính toán Cắt lỗ & Chốt lời động dựa trên chỉ báo ATR (2x ATR cho Cắt lỗ, 3x ATR cho Chốt lời)
 ____gia_cat_lo_atr = current_price - (2.0 * latest_atr)
 ____gia_chot_loi_atr = current_price + (3.0 * latest_atr)
 ____pct_cat_lo = ((gia_cat_lo_atr - current_price) / current_price) * 100
@@ -189,7 +189,7 @@ ____m5.metric("Biên độ ATR (14)", f"{latest_atr:,.0f} đ", f"±{(latest_atr/
 
 ____st.subheader("🤖 Phân Tích Chuyên Sâu & Khuyến Nghị Hành Động")
 ____if is_vol_breakout:
-________st.success(f"🔥 BÙNG NỔ KHỐI LƯỢNG (VOLUME BREAKOUT): Khối lượng giao dịch đạt **{vol_ratio:.0f}%** mức trung bình 20 phiên kèm giá bứt phá mạnh! Dòng tiền lớn đang nhập cuộc.")
+________st.success(f"🔥 BÙNG NỔ KHỐI LƯỢNG (VOLUME BREAKOUT): Khối lượng giao dịch đạt {vol_ratio:.0f}% mức trung bình 20 phiên kèm giá bứt phá mạnh! Dòng tiền lớn đang nhập cuộc.")
 ____if is_bull_trap:
 ________st.error(f"🚨 CẢNH BÁO BẪY TĂNG GIÁ (BULL TRAP): Giá tăng nhưng khối lượng chỉ đạt {vol_ratio:.0f}% trung bình kèm RSI cao. Tuyệt đối không mua đuổi!")
 ____diem_mua = (1 if pct_change > 0.5 else 0) + (1 if latest_macd > latest_sig else 0) + (1 if current_price > cloud_top else 0) + (1 if (current_price > latest_ma20 and vol_ratio >= 100) else 0)
@@ -265,18 +265,19 @@ ____________"Khuyến nghị": trang_thai
 ________}
 ____except Exception:
 ________return None
+DEFAULT_TOP_125 = (
+____'MBS', 'SHS', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'CTS', 'AGR', 'VIX', 'ORS', 'BVS', 'EVS', 'TVS',
+____'ACB', 'BID', 'CTG', 'EIB', 'HDB', 'LPB', 'MBB', 'MSB', 'NAB', 'OCB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VCB', 'VIB', 'VPB', 'BAB', 'NVB',
+____'CEO', 'DIG', 'DXG', 'DXS', 'HDC', 'HDG', 'HUT', 'IDC', 'IJC', 'KBC', 'KDH', 'L14', 'NLG', 'NVL', 'PDR', 'SCR', 'SZC', 'TCH', 'VHM', 'VIC', 'VPI', 'VRE',
+____'HPG', 'HSG', 'NKG', 'VGS', 'TVN', 'SMC', 'TLH',
+____'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'GEG', 'NT2', 'PC1', 'REE', 'BCG', 'GEX',
+____'FPT', 'CMG', 'ELC', 'ITD', 'CTR', 'VGI', 'FOX',
+____'DGC', 'DCM', 'DPM', 'CSV', 'LAS', 'BFC', 'GVR', 'DPR', 'PHR', 'DRC',
+____'MWG', 'MSN', 'PNJ', 'DGW', 'FRT', 'PET', 'VNM', 'SAB', 'KDC', 'MCH', 'PAN', 'TAR', 'LTG', 'DBC', 'BAF', 'HAG', 'ANV', 'VHC', 'IDI', 'CMX',
+____'GMD', 'HAH', 'VSC', 'VOS', 'VJC', 'HVN', 'ACV', 'CTD', 'VCG', 'HHV', 'LCG', 'FCN', 'CII', 'KSB', 'HT1', 'BCC', 'TNG', 'VGT', 'MSH', 'GIL', 'VCS', 'PTB', 'RAL'
+)
 DANH_MUC_NHOM = {
-____"🌟 Toàn bộ Top 125+ Cổ phiếu Thanh khoản cao (HOSE + HNX + UPCOM)": (
-________'MBS', 'SHS', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'CTS', 'AGR', 'VIX', 'ORS', 'BVS', 'EVS', 'TVS',
-________'ACB', 'BID', 'CTG', 'EIB', 'HDB', 'LPB', 'MBB', 'MSB', 'NAB', 'OCB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VCB', 'VIB', 'VPB', 'BAB', 'NVB',
-________'CEO', 'DIG', 'DXG', 'DXS', 'HDC', 'HDG', 'HUT', 'IDC', 'IJC', 'KBC', 'KDH', 'L14', 'NLG', 'NVL', 'PDR', 'SCR', 'SZC', 'TCH', 'VHM', 'VIC', 'VPI', 'VRE',
-________'HPG', 'HSG', 'NKG', 'VGS', 'TVN', 'SMC', 'TLH',
-________'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'GEG', 'NT2', 'PC1', 'REE', 'BCG', 'GEX',
-________'FPT', 'CMG', 'ELC', 'ITD', 'CTR', 'VGI', 'FOX',
-________'DGC', 'DCM', 'DPM', 'CSV', 'LAS', 'BFC', 'GVR', 'DPR', 'PHR', 'DRC',
-________'MWG', 'MSN', 'PNJ', 'DGW', 'FRT', 'PET', 'VNM', 'SAB', 'KDC', 'MCH', 'PAN', 'TAR', 'LTG', 'DBC', 'BAF', 'HAG', 'ANV', 'VHC', 'IDI', 'CMX',
-________'GMD', 'HAH', 'VSC', 'VOS', 'VJC', 'HVN', 'ACV', 'CTD', 'VCG', 'HHV', 'LCG', 'FCN', 'CII', 'KSB', 'HT1', 'BCC', 'TNG', 'VGT', 'MSH', 'GIL', 'VCS', 'PTB', 'RAL'
-____),
+____"🌐 Tự động tải Top 150 Cổ phiếu Sôi động nhất Thị trường (Động)": "DYNAMIC",
 ____"🏛️ Nhóm Cổ phiếu Chứng khoán": ('MBS', 'SHS', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'CTS', 'AGR', 'VIX', 'ORS', 'BVS', 'EVS', 'TVS', 'APS', 'ART', 'IVS', 'PSI', 'VDS'),
 ____"🏦 Nhóm Cổ phiếu Ngân hàng": ('ACB', 'BID', 'CTG', 'EIB', 'HDB', 'LPB', 'MBB', 'MSB', 'NAB', 'OCB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VCB', 'VIB', 'VPB', 'BAB', 'NVB', 'ABB', 'BVB', 'KLB', 'PGB', 'VAB', 'VBB'),
 ____"🏗️ Nhóm Bất động sản & Khu công nghiệp": ('CEO', 'DIG', 'DXG', 'DXS', 'HDC', 'HDG', 'HUT', 'IDC', 'IJC', 'KBC', 'KDH', 'L14', 'NLG', 'NVL', 'PDR', 'SCR', 'SZC', 'TCH', 'VHM', 'VIC', 'VPI', 'VRE', 'NTL', 'NBB', 'CRE', 'HPX', 'LDG', 'TIP', 'PHR', 'GVR'),
@@ -296,13 +297,17 @@ if run_btn:
 ____analyze_one_stock(symbol, days_history, epochs)
 with tab2:
 ____st.subheader("Quét Đột Biến Khối Lượng (Vol Breakout), Mây Ichimoku & Cắt Lỗ Động ATR")
-____c_filter1, c_filter2 = st.columns()
-____nhom_chon = c_filter1.selectbox("Chọn nhóm cổ phiếu / sàn muốn quét:", list(DANH_MUC_NHOM.keys()))
+____c_filter1, c_filter2 = st.columns(2)
+____nhom_chon = c_filter1.selectbox("Chọn nhóm cổ phiếu / chế độ quét:", list(DANH_MUC_NHOM.keys()))
 ____ma_rieng = c_filter2.text_input("Thêm mã riêng (cách nhau dấu phẩy):", placeholder="VD: BSR, KBC, VGC").upper().strip()
 ____chi_hien_mua = st.checkbox("Chỉ lọc hiển thị các mã đang có 🔥 BÙNG NỔ VOL, 🟢 MUA ĐẸP hoặc ⏸️ SIDEWAY")
 ____scan_btn = st.button("⚡ Bắt Đầu Quét Siêu Tốc Ngay")
 if scan_btn:
-____ds_quet = list(DANH_MUC_NHOM[nhom_chon])
+____nhom_val = DANH_MUC_NHOM[nhom_chon]
+____if nhom_val == "DYNAMIC":
+________ds_quet = get_dynamic_top_tickers(DEFAULT_TOP_125)
+____else:
+________ds_quet = list(nhom_val)
 ____if ma_rieng:
 ________for m in ma_rieng.split(','):
 ____________m_clean = m.strip()

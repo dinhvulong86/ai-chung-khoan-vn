@@ -13,11 +13,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 st.set_page_config(page_title="Hệ Thống AI Phân Tích Chứng Khoán VN (Pro)", layout="wide")
 st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Quét Thị Trường Đa Luồng (Pro)")
 st.markdown("Tích hợp **AI Neural Net**, **Bollinger Bands**, **Dòng tiền MFI**, **Tỷ số Sharpe** & **Quét đa luồng 120+ mã**.")
-
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_stock_data(symbol, days=500):
-____end_ts = int(datetime.now().timestamp())
+____now_vn = datetime.utcnow() + timedelta(hours=7)
+____today_str = now_vn.strftime('%Y-%m-%d')
+____end_ts = int(now_vn.timestamp())
 ____headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json'}
+____df = pd.DataFrame()
 ____try:
 ________count_back = min(int(days * 0.72), 1000)
 ________url_tcbs = "https://tcbs.com.vn"
@@ -31,26 +33,42 @@ ____________df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].c
 ____________for col in ['open', 'high', 'low', 'close']:
 ________________if df[col].iloc[-1] < 1000:
 ____________________df[col] = df[col] * 1000
-____________return df.dropna().sort_values('time').reset_index(drop=True)
+____________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
-____try:
-________start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-________end_date = datetime.now().strftime('%Y-%m-%d')
-________ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
-________df = yf.download(ticker_vn, start=start_date, end=end_date, progress=False)
-________if not df.empty:
-____________if isinstance(df.columns, pd.MultiIndex):
-________________df.columns = df.columns.get_level_values(0)
-____________df = df.reset_index()
-____________df = df.loc[:, ('Date', 'Open', 'High', 'Low', 'Close', 'Volume')].copy()
-____________df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-____________df['time'] = pd.to_datetime(df['time']).dt.strftime('%Y-%m-%d')
-____________return df.dropna().sort_values('time').reset_index(drop=True)
-____except Exception:
-________pass
-____return pd.DataFrame()
 
+____if df.empty:
+________try:
+____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
+____________ticker_vn = symbol if symbol.endswith(".VN") else f"{symbol}.VN"
+____________df_yf = yf.download(ticker_vn, start=start_date, end=today_str, progress=False)
+____________if not df_yf.empty:
+________________if isinstance(df_yf.columns, pd.MultiIndex):
+____________________df_yf.columns = df_yf.columns.get_level_values(0)
+________________df_yf = df_yf.reset_index()
+________________df_yf = df_yf.loc[:, ('Date', 'Open', 'High', 'Low', 'Close', 'Volume')].copy()
+________________df_yf.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+________________df_yf['time'] = pd.to_datetime(df_yf['time']).dt.strftime('%Y-%m-%d')
+________________df = df_yf.dropna().sort_values('time').reset_index(drop=True)
+________except Exception:
+____________pass
+
+____# Ghép thêm cây nến khớp lệnh trực tiếp (Intraday) của ngày hôm nay nếu chưa có
+____if not df.empty and df['time'].iloc[-1] != today_str:
+________try:
+____________url_intra = f"https://tcbs.com.vn{symbol}/investor/his/paging"
+____________res_intra = requests.get(url_intra, params={"page": 0, "size": 500}, headers=headers, timeout=6)
+____________intra_data = res_intra.json().get('data', [])
+____________if intra_data:
+________________prices = [float(x['p']) * (1000 if float(x['p']) < 1000 else 1) for x in intra_data if x.get('p')]
+________________vols = sum(float(x['v']) for x in intra_data if x.get('v'))
+________________if prices:
+____________________new_row = pd.DataFrame([{'time': today_str, 'open': prices[-1], 'high': max(prices), 'low': min(prices), 'close': prices[0], 'volume': vols}])
+____________________df = pd.concat([df, new_row], ignore_index=True)
+________except Exception:
+____________pass
+
+____return df
 def add_technical_indicators(df):
 ____df['MA20'] = df['close'].rolling(window=20).mean()
 ____df['MA50'] = df['close'].rolling(window=50).mean()

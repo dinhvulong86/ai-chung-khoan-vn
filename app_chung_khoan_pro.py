@@ -147,7 +147,8 @@ ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(col
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA50'], line=dict(color='blue', width=1.5), name='MA50'))
 ____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Mục tiêu Chốt lời")
 ____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_text="Mốc Cắt lỗ")
-____fig.update_layout(xaxis_rangeslider_visible=False, height=480)
+____fig.update_xaxes(type='category', tickangle=-45, nticks=30)
+____fig.update_layout(xaxis_rangeslider_visible=False, height=500, hovermode='x unified')
 ____st.plotly_chart(fig, use_container_width=True)
 
 def scan_single_stock(ma):

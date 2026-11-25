@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
 import plotly.graph_objects as go
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(page_title="Hệ Thống AI Phân Tích Chứng Khoán VN (Pro)", layout="wide")
-st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Quản Trị Danh Mục (Pro)")
-st.markdown("Tích hợp **AI Neural Net**, **Bollinger Bands**, **Dòng tiền MFI**, **Cảnh báo Bull/Bear Trap** & **Tỷ số Sharpe**.")
+st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Quét Thị Trường Đa Luồng (Pro)")
+st.markdown("Tích hợp **AI Neural Net**, **Bollinger Bands**, **Dòng tiền MFI**, **Tỷ số Sharpe** & **Quét đa luồng 120+ mã**.")
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol, days=500):
@@ -22,7 +22,7 @@ ____try:
 ________count_back = min(int(days * 0.72), 1000)
 ________url_tcbs = "https://tcbs.com.vn"
 ________params_tcbs = {"ticker": symbol, "type": "stock", "resolution": "D", "to": end_ts, "countBack": count_back}
-________res = requests.get(url_tcbs, params=params_tcbs, headers=headers, timeout=10)
+________res = requests.get(url_tcbs, params=params_tcbs, headers=headers, timeout=8)
 ________data = res.json().get('data', [])
 ________if data and len(data) >= 30:
 ____________df = pd.DataFrame(data)
@@ -52,30 +52,20 @@ ________pass
 ____return pd.DataFrame()
 
 def add_technical_indicators(df):
-____# 1. Đường trung bình động MA20, MA50 & Dải Bollinger Bands (20, 2)
 ____df['MA20'] = df['close'].rolling(window=20).mean()
 ____df['MA50'] = df['close'].rolling(window=50).mean()
 ____df['STD20'] = df['close'].rolling(window=20).std()
 ____df['BB_Upper'] = df['MA20'] + (2 * df['STD20'])
 ____df['BB_Lower'] = df['MA20'] - (2 * df['STD20'])
-____df['BB_Width'] = ((df['BB_Upper'] - df['BB_Lower']) / df['MA20']) * 100
-____
-____# 2. Trung bình khối lượng 20 phiên (Xác nhận dòng tiền)
 ____df['Vol_MA20'] = df['volume'].rolling(window=20).mean()
-____
-____# 3. Biên độ hộp 20 phiên nhận diện Sideway
 ____df['High_20'] = df['high'].rolling(window=20).max()
 ____df['Low_20'] = df['low'].rolling(window=20).min()
 ____df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20']) * 100
-____
-____# 4. Chỉ báo RSI (14)
 ____delta = df['close'].diff()
 ____gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
 ____loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
 ____rs = gain / loss
 ____df['RSI'] = 100 - (100 / (1 + rs))
-____
-____# 5. Chỉ báo Dòng tiền MFI (Money Flow Index 14)
 ____tp = (df['high'] + df['low'] + df['close']) / 3
 ____raw_mf = tp * df['volume']
 ____pos_mf = np.where(tp > tp.shift(1), raw_mf, 0)
@@ -84,8 +74,6 @@ ____pos_mf_14 = pd.Series(pos_mf).rolling(window=14).sum()
 ____neg_mf_14 = pd.Series(neg_mf).rolling(window=14).sum()
 ____mfr = pos_mf_14 / neg_mf_14.replace(0, np.nan)
 ____df['MFI'] = 100 - (100 / (1 + mfr))
-____
-____# 6. Chỉ báo MACD (12, 26, 9)
 ____exp1 = df['close'].ewm(span=12, adjust=False).mean()
 ____exp2 = df['close'].ewm(span=26, adjust=False).mean()
 ____df['MACD'] = exp1 - exp2
@@ -99,8 +87,6 @@ ________st.error(f"Không đủ dữ liệu lịch sử cho mã {symbol}. Vui l�
 ________return
 ____df = add_technical_indicators(df)
 ____df_clean = df.dropna().copy()
-____
-____# Đưa cả MFI và Bollinger Width vào cho AI học
 ____features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD')
 ____data = df_clean.loc[:, features].values
 ____scaler = MinMaxScaler(feature_range=(0, 1))
@@ -116,7 +102,6 @@ ____dummy_array = np.zeros((1, len(features)))
 ____dummy_array.put(0, pred_scaled)
 ____predicted_price = scaler.inverse_transform(dummy_array).item(0)
 
-____# Lấy các thông số phiên mới nhất
 ____current_price = float(df_clean['close'].iloc[-1])
 ____prev_close = float(df_clean['close'].iloc[-2])
 ____current_vol = float(df_clean['volume'].iloc[-1])
@@ -133,11 +118,8 @@ ____range_20 = float(df_clean['Range_20_Pct'].iloc[-1])
 ____high_20 = float(df_clean['High_20'].iloc[-1])
 ____low_20 = float(df_clean['Low_20'].iloc[-1])
 
-____# Nhận diện Sideway & Bẫy tăng giá (Bull Trap)
 ____is_sideway = (range_20 < 9.5) and (abs(current_price - latest_ma20) / latest_ma20 < 0.025)
 ____is_bull_trap = (current_price > prev_close * 1.02) and (current_vol < vol_ma20 * 0.75) and (latest_rsi > 65)
-____
-____# Tính toán Tỷ số Sharpe & Độ biến động (Theo lý thuyết Quản lý danh mục)
 ____daily_rets = df_clean['close'].pct_change().dropna().tail(250)
 ____ann_return = daily_rets.mean() * 250
 ____ann_vol = daily_rets.std() * np.sqrt(250)
@@ -156,13 +138,12 @@ ____m5.metric("Tỷ số Sharpe (1Y)", f"{sharpe_ratio:.2f}", "Hấp dẫn (>1)"
 
 ____st.subheader("🤖 Phân Tích Chuyên Sâu & Khuyến Nghị Hành Động")
 ____if is_bull_trap:
-________st.error("🚨 CẢNH BÁO BẪY TĂNG GIÁ (BULL TRAP): Giá tăng nhưng khối lượng giao dịch sụt giảm mạnh dưới trung bình 20 phiên kèm RSI cao. Tuyệt đối không mua đuổi!")
-____
+________st.error("🚨 CẢNH BÁO BẪY TĂNG GIÁ (BULL TRAP): Giá tăng nhưng khối lượng sụt giảm dưới trung bình 20 phiên kèm RSI cao. Tuyệt đối không mua đuổi!")
 ____diem_mua = (1 if pct_change > 0.5 else 0) + (1 if latest_macd > latest_sig else 0) + (1 if (latest_rsi < 40 or latest_mfi < 30) else 0) + (1 if (current_price > latest_ma20 and current_vol >= vol_ma20 * 0.9) else 0)
 ____diem_ban = (1 if pct_change < -0.5 else 0) + (1 if latest_macd <= latest_sig else 0) + (2 if (latest_rsi > 70 or latest_mfi > 80) else 0) + (1 if current_price <= latest_ma20 else 0)
 
 ____if is_sideway:
-________st.warning(f"⏸️ THỊ TRƯỜNG ĐI NGANG (SIDEWAY): Biên độ 20 phiên nén chặt {range_20:.1f}% (trong hộp {low_20:,.0f} đ – {high_20:,.0f} đ). Theo nguyên tắc PTKT, hạn chế dùng MACD; ưu tiên mua gần biên dưới Bollinger ({bb_lower:,.0f} đ) và chốt lời gần biên trên ({bb_upper:,.0f} đ).")
+________st.warning(f"⏸️ THỊ TRƯỜNG ĐI NGANG (SIDEWAY): Biên độ 20 phiên nén chặt {range_20:.1f}% (trong hộp {low_20:,.0f} đ – {high_20:,.0f} đ). Ưu tiên mua gần biên dưới Bollinger ({bb_lower:,.0f} đ) và chốt lời gần biên trên ({bb_upper:,.0f} đ).")
 ____elif diem_ban >= 3:
 ________st.error(f"🔴 KHUYẾN NGHỊ: BÁN HẠ TỶ TRỌNG / CHỐT LỜI NGAY (Điểm rủi ro BÁN: {diem_ban}/5)")
 ____elif diem_mua >= 3 and diem_ban <= 1:
@@ -187,9 +168,11 @@ ____total_strategy_return = (1 + df_bt['Strategy_Return'].fillna(0)).prod() - 1
 ____first_close = float(df_bt['close'].head(1).item())
 ____last_close = float(df_bt['close'].tail(1).item())
 ____total_hold_return = (last_close / first_close) - 1
+
 ____bt1, bt2 = st.columns(2)
-____bt1.info(f"Lợi nhuận theo hệ thống (Đã lọc quá mua MFI/RSI): {total_strategy_return*100:+.2f}%")
-____bt2.info(f"Lợi nhuận nếu chỉ mua và nắm giữ (Buy & Hold): {total_hold_return*100:+.2f}%")
+____bt1.info(f"**Lợi nhuận theo hệ thống (Đã lọc quá mua MFI/RSI):** `{total_strategy_return*100:+.2f}%`")
+____bt2.info(f"**Lợi nhuận nếu chỉ mua và nắm giữ (Buy & Hold):** `{total_hold_return*100:+.2f}%`")
+
 ____st.subheader(f"Biểu đồ kỹ thuật {symbol} & Dải Bollinger Bands (120 phiên)")
 ____df_plot = df_clean.tail(120)
 ____fig = go.Figure()
@@ -228,10 +211,28 @@ ____________trang_thai = "⚪ ĐỨNG NGOÀI"
 ________return {"Mã CP": ma, "Giá hiện tại (đ)": round(float(last['close']), 0), "Hỗ trợ BB Dưới": round(float(last['BB_Lower']), 0), "Kháng cự BB Trên": round(float(last['BB_Upper']), 0), "RSI (14)": round(float(last['RSI']), 1), "MFI (14)": round(float(last['MFI']), 1), "Điểm Mua": f"{buy_score}/4", "Khuyến nghị": trang_thai}
 ____except Exception:
 ________return None
-tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Dòng Tiền HOSE & HNX"])
+DANH_MUC_NHOM = {
+____"🌟 Toàn bộ Top 125+ Cổ phiếu Thanh khoản cao (HOSE + HNX + UPCOM)": (
+________'MBS', 'SHS', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'CTS', 'AGR', 'VIX', 'ORS', 'BVS', 'EVS', 'TVS',
+________'ACB', 'BID', 'CTG', 'EIB', 'HDB', 'LPB', 'MBB', 'MSB', 'NAB', 'OCB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VCB', 'VIB', 'VPB', 'BAB', 'NVB',
+________'CEO', 'DIG', 'DXG', 'DXS', 'HDC', 'HDG', 'HUT', 'IDC', 'IJC', 'KBC', 'KDH', 'L14', 'NLG', 'NOV', 'NVL', 'PDR', 'SCR', 'SZC', 'TCH', 'VHM', 'VIC', 'VPI', 'VRE',
+________'HPG', 'HSG', 'NKG', 'VGS', 'TVN', 'SMC', 'TLH',
+________'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'GEG', 'NT2', 'PC1', 'REE', 'BCG', 'GEX',
+________'FPT', 'CMG', 'ELC', 'ITD', 'CTR', 'VGI', 'FOX',
+________'DGC', 'DCM', 'DPM', 'CSV', 'LAS', 'BFC', 'GVR', 'DPR', 'PHR', 'DRC',
+________'MWG', 'MSN', 'PNJ', 'DGW', 'FRT', 'PET', 'VNM', 'SAB', 'KDC', 'MCH', 'PAN', 'TAR', 'LTG', 'DBC', 'BAF', 'HAG', 'ANV', 'VHC', 'IDI', 'CMX',
+________'GMD', 'HAH', 'VSC', 'VOS', 'VJC', 'HVN', 'ACV', 'CTD', 'VCG', 'HHV', 'LCG', 'FCN', 'CII', 'KSB', 'HT1', 'BCC', 'TNG', 'VGT', 'MSH', 'GIL', 'VCS', 'PTB', 'RAL'
+____),
+____"🏛️ Nhóm Cổ phiếu Chứng khoán": ('MBS', 'SHS', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'CTS', 'AGR', 'VIX', 'ORS', 'BVS', 'EVS', 'TVS', 'APS', 'ART', 'IVS', 'PSI', 'VDS'),
+____"🏦 Nhóm Cổ phiếu Ngân hàng": ('ACB', 'BID', 'CTG', 'EIB', 'HDB', 'LPB', 'MBB', 'MSB', 'NAB', 'OCB', 'SHB', 'SSB', 'STB', 'TCB', 'TPB', 'VCB', 'VIB', 'VPB', 'BAB', 'NVB', 'ABB', 'BVB', 'KLB', 'PGB', 'VAB', 'VBB'),
+____"🏗️ Nhóm Bất động sản & Khu công nghiệp": ('CEO', 'DIG', 'DXG', 'DXS', 'HDC', 'HDG', 'HUT', 'IDC', 'IJC', 'KBC', 'KDH', 'L14', 'NLG', 'NVL', 'PDR', 'SCR', 'SZC', 'TCH', 'VHM', 'VIC', 'VPI', 'VRE', 'NTL', 'NBB', 'CRE', 'HPX', 'LDG', 'TIP', 'PHR', 'GVR'),
+____"🔥 Nhóm Sàn HNX Tiêu biểu": ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'BVS', 'LAS', 'PVC', 'DTD', 'TIG', 'L14', 'NTP', 'PLC', 'TVD', 'NBC', 'DDG', 'NDN', 'MST', 'AMV', 'TAR', 'VC3', 'NRC'),
+____"⚙️ Nhóm Thép - Dầu khí - Hóa chất - Công nghệ": ('HPG', 'HSG', 'NKG', 'VGS', 'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'FPT', 'CMG', 'ELC', 'CTR', 'VGI', 'DGC', 'DCM', 'DPM', 'CSV', 'GMD', 'HAH', 'MWG', 'FRT', 'DGW', 'PNJ', 'VHC', 'ANV', 'DBC', 'HAG')
+}
+tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu & Điểm Mua/Bán", "🔍 Bộ Lọc Quét Toàn Thị Trường (Đa Luồng)"])
 with tab1:
 ____col1, col2, col3, col4 = st.columns(4)
-____symbol = col1.text_input("Nhập mã cổ phiếu HOSE/HNX/UPCOM (VD: CEO, MBS, SHS, FPT):", value="MBS").upper().strip()
+____symbol = col1.text_input("Nhập mã cổ phiếu bất kỳ (HOSE/HNX/UPCOM):", value="MBS").upper().strip()
 ____days_history = col2.selectbox("Dữ liệu lịch sử học (ngày):", (365, 500, 730, 1000), index=2)
 ____epochs = col3.selectbox("Số vòng học AI (Iterations):", (100, 200, 300), index=1)
 ____col4.write("")
@@ -240,27 +241,41 @@ ____run_btn = col4.button("🚀 Chạy Phân Tích Ngay", use_container_width=Tr
 if run_btn:
 ____analyze_one_stock(symbol, days_history, epochs)
 with tab2:
-____st.subheader("Quét tín hiệu Dòng tiền (MFI), Bollinger Bands & Sideway trên rổ HNX & VN30")
-____st.write("Tích hợp bộ lọc xác nhận Khối lượng giao dịch (Volume) và Dòng tiền MFI giúp loại bỏ các tín hiệu phá vỡ giả (Bull Trap).")
-____scan_btn = st.button("🔍 Bắt đầu quét thị trường ngay")
+____st.subheader("Quét Dòng Tiền (MFI), Bollinger Bands & Sideway Đa Luồng Siêu Tốc")
+____c_filter1, c_filter2 = st.columns([2, 1])
+____nhom_chon = c_filter1.selectbox("Chọn nhóm cổ phiếu / sàn muốn quét:", list(DANH_MUC_NHOM.keys()))
+____ma_rieng = c_filter2.text_input("Thêm mã riêng (cách nhau dấu phẩy):", placeholder="VD: BSR, KBC, VGC").upper().strip()
+____chi_hien_mua = st.checkbox("Chỉ lọc hiển thị các mã đang có 🟢 TÍN HIỆU MUA ĐẸP hoặc ⏸️ SIDEWAY (Tích lũy)")
+____scan_btn = st.button("⚡ Bắt Đầu Quét Siêu Tốc Ngay")
 if scan_btn:
-____danh_sach_ma = ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'ACB', 'BCM', 'BID', 'BVH', 'CTG', 'FPT', 'GAS', 'GVR', 'HDB', 'HPG', 'MBB', 'MSN', 'MWG', 'PLX', 'POW', 'SAB', 'SHB', 'SSB', 'SSI', 'STB', 'TCB', 'TPB', 'VCB', 'VHM', 'VIB', 'VIC', 'VJC', 'VNM', 'VPB', 'VRE')
+____ds_quet = list(DANH_MUC_NHOM[nhom_chon])
+____if ma_rieng:
+________for m in ma_rieng.split(','):
+____________m_clean = m.strip()
+____________if m_clean and m_clean not in ds_quet:
+________________ds_quet.insert(0, m_clean)
 ____progress_bar = st.progress(0)
 ____status_text = st.empty()
 ____ket_qua_loc = []
-____for idx, ma in enumerate(danh_sach_ma):
-________status_text.text(f"Đang phân tích dòng tiền & kỹ thuật mã {ma} ({idx+1}/{len(danh_sach_ma)})...")
-________progress_bar.progress((idx + 1) / len(danh_sach_ma))
-________res = scan_single_stock(ma)
-________if res is not None:
-____________ket_qua_loc.append(res)
-________time.sleep(0.1)
-____status_text.text("✅ Hoàn tất quét tín hiệu toàn thị trường!")
+____tong_so = len(ds_quet)
+____da_xong = 0
+____with ThreadPoolExecutor(max_workers=10) as executor:
+________future_to_ma = {executor.submit(scan_single_stock, ma): ma for ma in ds_quet}
+________for future in as_completed(future_to_ma):
+____________da_xong += 1
+____________progress_bar.progress(da_xong / tong_so)
+____________status_text.text(f"⚡ Đang quét song song: {da_xong}/{tong_so} mã cổ phiếu...")
+____________res = future.result()
+____________if res is not None:
+________________ket_qua_loc.append(res)
+____status_text.text(f"✅ Hoàn tất quét {tong_so} mã cổ phiếu!")
 ____if ket_qua_loc:
 ________df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Khuyến nghị", "Điểm Mua"], ascending=[True, False])
+________if chi_hien_mua:
+____________df_res = df_res[df_res["Khuyến nghị"].str.contains("MUA ĐẸP|SIDEWAY")]
+________st.write(f"Tìm thấy {len(df_res)} cổ phiếu phù hợp điều kiện:")
 ________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ____else:
 ________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 """
 exec('\n'.join((' ' * (len(l) - len(l.lstrip(chr(95))))) + l.lstrip(chr(95)) for l in raw_code.strip().splitlines()))
-

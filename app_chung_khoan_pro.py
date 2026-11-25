@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import yfinance as yf
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
 import plotly.graph_objects as go
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from vnstock import Quote
 
-st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (VnStock)", layout="wide")
+st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN", layout="wide")
 st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Quản Trị Danh Mục VN")
-st.markdown("Tích hợp **Mây Ichimoku**, **Cắt lỗ động ATR**, **Đột biến Volume**, **Quét đa luồng** & **Nhật ký chấm điểm thực tế** — Nguồn dữ liệu: **VnStock (VCI)**")
+st.markdown("Tích hợp **Mây Ichimoku**, **Cắt lỗ động ATR**, **Đột biến Volume**, **Quét đa luồng** & **Nhật ký chấm điểm thực tế**")
 
 if "nhat_ky_lenh" not in st.session_state:
     st.session_state.nhat_ky_lenh = [
@@ -19,11 +19,11 @@ if "nhat_ky_lenh" not in st.session_state:
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
-    """Lấy dữ liệu lịch sử từ yfinance (ổn định trên Streamlit Cloud)"""
+    """Lấy dữ liệu lịch sử từ yfinance"""
     try:
         ticker = f"{symbol.upper()}.VN"
         end = datetime.now()
-        start = end - timedelta(days=days + 50)
+        start = end - timedelta(days=days + 60)
         
         df = yf.download(
             ticker,
@@ -63,36 +63,7 @@ def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
             df = df.tail(days).reset_index(drop=True)
             
         return df
-    except Exception as e:
-        return pd.DataFrame()
-        # Chuẩn hóa cột
-        df = df.rename(columns={
-            "time": "time",
-            "open": "open",
-            "high": "high",
-            "low": "low",
-            "close": "close",
-            "volume": "volume"
-        })
-        
-        # Chỉ giữ các cột cần thiết
-        cols = ["time", "open", "high", "low", "close", "volume"]
-        df = df[[c for c in cols if c in df.columns]].copy()
-        
-        # Đảm bảo kiểu dữ liệu
-        df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%d")
-        for col in ["open", "high", "low", "close", "volume"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        
-        df = df.dropna().sort_values("time").reset_index(drop=True)
-        
-        # Lọc đúng số ngày gần nhất
-        if len(df) > days:
-            df = df.tail(days).reset_index(drop=True)
-            
-        return df
-    except Exception as e:
-        st.warning(f"Lỗi lấy dữ liệu {symbol}: {e}")
+    except Exception:
         return pd.DataFrame()
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:

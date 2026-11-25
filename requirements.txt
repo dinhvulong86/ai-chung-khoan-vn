@@ -1,9 +1,7 @@
 streamlit
-vnstock
 pandas
 numpy
 scikit-learn
 plotly
 yfinance
 requests
-

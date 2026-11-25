@@ -11,8 +11,13 @@ import plotly.graph_objects as go
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (Ultimate)", layout="wide")
-st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Dòng Tiền Chứng Khoán VN")
-st.markdown("Tích hợp **Mây Ichimoku**, **Cắt lỗ động ATR**, **Đột biến Volume**, **Bollinger Bands**, **MFI** & **Quét đa luồng**.")
+st.title("🚀 Hệ Thống AI Phân Tích Kỹ Thuật & Quản Trị Danh Mục VN")
+st.markdown("Tích hợp **Mây Ichimoku**, **Cắt lỗ động ATR**, **Đột biến Volume**, **Quét đa luồng** & **Nhật ký chấm điểm thực tế**.")
+
+if "nhat_ky_lenh" not in st.session_state:
+____st.session_state.nhat_ky_lenh = [
+________{"Ngày quét": "25/11/2026", "Mã CP": "HAG", "Giá vào (đ)": 13850, "Cắt lỗ ATR (đ)": 13314, "Chốt lời ATR (đ)": 14654, "Ghi chú": "Mẫu theo dõi Bùng nổ Vol"}
+____]
 
 @st.cache_data(ttl=60)
 def get_stock_data(symbol, days=500):
@@ -63,7 +68,11 @@ ____________if intra_data:
 ________________prices = [float(x['p']) * (1000 if float(x['p']) < 1000 else 1) for x in intra_data if x.get('p')]
 ________________vols = sum(float(x['v']) for x in intra_data if x.get('v'))
 ________________if prices:
-____________________new_row = pd.DataFrame([{'time': today_str, 'open': prices[-1], 'high': max(prices), 'low': min(prices), 'close': prices[0], 'volume': vols}])
+____________________latest_p = prices.pop(0)
+____________________open_p = prices[-1] if prices else latest_p
+____________________high_p = max(prices + [latest_p])
+____________________low_p = min(prices + [latest_p])
+____________________new_row = pd.DataFrame([{'time': today_str, 'open': open_p, 'high': high_p, 'low': low_p, 'close': latest_p, 'volume': vols}])
 ____________________df = pd.concat([df, new_row], ignore_index=True)
 ________except Exception:
 ____________pass
@@ -186,7 +195,6 @@ ____m3.metric("Chỉ số RSI / MFI", f"{latest_rsi:.0f} / {latest_mfi:.0f}", "Q
 ____ichi_status = "Trên mây (Tăng)" if current_price > cloud_top else ("Dưới mây (Giảm)" if current_price < cloud_bot else "Trong mây (Giằng co)")
 ____m4.metric("Vị thế Mây Ichimoku", ichi_status, f"Mây: {cloud_bot:,.0f} - {cloud_top:,.0f}", delta_color="off")
 ____m5.metric("Biên độ ATR (14)", f"{latest_atr:,.0f} đ", f"±{(latest_atr/current_price)*100:.1f}% / phiên", delta_color="off")
-
 ____st.subheader("🤖 Phân Tích Chuyên Sâu & Khuyến Nghị Hành Động")
 ____if is_vol_breakout:
 ________st.success(f"🔥 BÙNG NỔ KHỐI LƯỢNG (VOLUME BREAKOUT): Khối lượng giao dịch đạt {vol_ratio:.0f}% mức trung bình 20 phiên kèm giá bứt phá mạnh! Dòng tiền lớn đang nhập cuộc.")
@@ -284,7 +292,7 @@ ____"🏗️ Nhóm Bất động sản & Khu công nghiệp": ('CEO', 'DIG', 'DX
 ____"🔥 Nhóm Sàn HNX Tiêu biểu": ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'BVS', 'LAS', 'PVC', 'DTD', 'TIG', 'L14', 'NTP', 'PLC', 'TVD', 'NBC', 'DDG', 'NDN', 'MST', 'AMV', 'TAR', 'VC3', 'NRC'),
 ____"⚙️ Nhóm Thép - Dầu khí - Hóa chất - Công nghệ": ('HPG', 'HSG', 'NKG', 'VGS', 'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'FPT', 'CMG', 'ELC', 'CTR', 'VGI', 'DGC', 'DCM', 'DPM', 'CSV', 'GMD', 'HAH', 'MWG', 'FRT', 'DGW', 'PNJ', 'VHC', 'ANV', 'DBC', 'HAG')
 }
-tab1, tab2 = st.tabs(["📊 Phân Tích Chuyên Sâu (Ichimoku & ATR)", "🔍 Bộ Lọc Quét Đột Biến Dòng Tiền"])
+tab1, tab2, tab3 = st.tabs(["📊 Phân Tích Chuyên Sâu", "🔍 Quét Đột Biến Dòng Tiền", "📝 Nhật Ký & Chấm Điểm Tín Hiệu"])
 with tab1:
 ____col1, col2, col3, col4 = st.columns(4)
 ____symbol = col1.text_input("Nhập mã cổ phiếu bất kỳ (HOSE/HNX/UPCOM):", value="MBS").upper().strip()
@@ -336,5 +344,71 @@ ________st.write(f"Tìm thấy {len(df_res)} cổ phiếu phù hợp điều ki�
 ________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ____else:
 ________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
+with tab3:
+____st.subheader("📝 Nhật Ký Theo Dõi & Tự Động Chấm Điểm Hiệu Quả Phần Mềm")
+____st.write("Lưu các mã phần mềm báo Mua đẹp / Bùng nổ Vol vào đây để hệ thống tự động đối chiếu giá thị trường hàng ngày và tính lãi/lỗ thực tế (đã trừ sẵn 0,3% thuế phí MBS).")
+____with st.form("form_them_ma"):
+________fc1, fc2, fc3 = st.columns()
+________ma_luu = fc1.text_input("Mã cổ phiếu muốn lưu:", placeholder="VD: HAG, MBS, FPT").upper().strip()
+________ghi_chu = fc2.text_input("Ghi chú tín hiệu:", value="Bùng nổ Vol + Mua")
+________fc3.write("")
+________fc3.write("")
+________submit_luu = fc3.form_submit_button("➕ Lưu vào Nhật ký", use_container_width=True)
+____if submit_luu and ma_luu:
+________info_ma = scan_single_stock(ma_luu)
+________if info_ma:
+____________now_str = (datetime.utcnow() + timedelta(hours=7)).strftime('%d/%m/%Y')
+____________st.session_state.nhat_ky_lenh.append({
+________________"Ngày quét": now_str,
+________________"Mã CP": ma_luu,
+________________"Giá vào (đ)": info_ma["Giá hiện tại (đ)"],
+________________"Cắt lỗ ATR (đ)": info_ma["Cắt lỗ ATR (đ)"],
+________________"Chốt lời ATR (đ)": info_ma["Chốt lời ATR (đ)"],
+________________"Ghi chú": ghi_chu
+____________})
+____________st.success(f"Đã lưu mã {ma_luu} (Giá vào: {info_ma['Giá hiện tại (đ)']:,.0f} đ) vào nhật ký theo dõi!")
+________else:
+____________st.error(f"Không lấy được dữ liệu của mã {ma_luu} để lưu.")
+____if st.session_state.nhat_ky_lenh:
+________bang_cham_diem = []
+________so_lenh_thang = 0
+________tong_lenh_da_dong = 0
+________for item in st.session_state.nhat_ky_lenh:
+____________ma_cp = item["Mã CP"]
+____________gia_vao = float(item["Giá vào (đ)"])
+____________cat_lo = float(item["Cắt lỗ ATR (đ)"])
+____________chot_loi = float(item["Chốt lời ATR (đ)"])
+____________df_now = get_stock_data(ma_cp, days=30)
+____________gia_tt = float(df_now['close'].iloc[-1]) if not df_now.empty else gia_vao
+____________# Tính lãi lỗ ròng sau khi trừ 0.3% thuế và phí giao dịch MBS
+____________lai_lo_rong = ((gia_tt - gia_vao) / gia_vao) * 100 - 0.3
+____________if gia_tt >= chot_loi:
+________________ket_qua = "🎉 ĐẠT CHỐT LỜI ATR"
+________________so_lenh_thang += 1
+________________tong_lenh_da_dong += 1
+____________elif gia_tt <= cat_lo:
+________________ket_qua = "🛑 CHẠM CẮT LỖ ATR"
+________________tong_lenh_da_dong += 1
+____________else:
+________________ket_qua = "⏳ ĐANG NẮM GIỮ"
+____________bang_cham_diem.append({
+________________"Ngày quét": item["Ngày quét"],
+________________"Mã CP": ma_cp,
+________________"Giá vào (đ)": round(gia_vao, 0),
+________________"Giá thị trường (đ)": round(gia_tt, 0),
+________________"Cắt lỗ ATR (đ)": round(cat_lo, 0),
+________________"Chốt lời ATR (đ)": round(chot_loi, 0),
+________________"Lãi/Lỗ ròng (%)": f"{lai_lo_rong:+.2f}%",
+________________"Trạng thái": ket_qua,
+________________"Ghi chú": item["Ghi chú"]
+____________})
+________df_nk = pd.DataFrame(bang_cham_diem)
+________st.dataframe(df_nk, use_container_width=True, hide_index=True)
+________c_btn1, c_btn2 = st.columns(2)
+________csv_data = df_nk.to_csv(index=False).encode('utf-8-sig')
+________c_btn1.download_button("📥 Tải Nhật Ký về máy (File Excel/CSV)", data=csv_data, file_name="nhat_ky_chung_khoan.csv", mime="text/csv")
+________if c_btn2.button("🗑️ Xóa toàn bộ nhật ký làm lại"):
+____________st.session_state.nhat_ky_lenh = []
+____________st.rerun()
 """
 exec('\n'.join((' ' * (len(l) - len(l.lstrip(chr(95))))) + l.lstrip(chr(95)) for l in raw_code.strip().splitlines()))

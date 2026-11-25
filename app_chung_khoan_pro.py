@@ -19,17 +19,52 @@ if "nhat_ky_lenh" not in st.session_state:
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
-    """Lấy dữ liệu lịch sử từ VnStock (VCI)"""
+    """Lấy dữ liệu lịch sử từ yfinance (ổn định trên Streamlit Cloud)"""
     try:
-        end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=days + 30)).strftime("%Y-%m-%d")
+        ticker = f"{symbol.upper()}.VN"
+        end = datetime.now()
+        start = end - timedelta(days=days + 50)
         
-        quote = Quote(symbol=symbol.upper(), source="VCI")
-        df = quote.history(start=start, end=end, interval="1D")
+        df = yf.download(
+            ticker,
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            progress=False,
+            auto_adjust=True
+        )
         
         if df is None or df.empty:
             return pd.DataFrame()
         
+        # Xử lý MultiIndex nếu có
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        df = df.reset_index()
+        df = df.rename(columns={
+            "Date": "time",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume"
+        })
+        
+        cols = ["time", "open", "high", "low", "close", "volume"]
+        df = df[[c for c in cols if c in df.columns]].copy()
+        
+        df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%d")
+        for col in ["open", "high", "low", "close", "volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        
+        df = df.dropna().sort_values("time").reset_index(drop=True)
+        
+        if len(df) > days:
+            df = df.tail(days).reset_index(drop=True)
+            
+        return df
+    except Exception as e:
+        return pd.DataFrame()
         # Chuẩn hóa cột
         df = df.rename(columns={
             "time": "time",

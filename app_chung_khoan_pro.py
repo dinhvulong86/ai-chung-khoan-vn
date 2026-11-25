@@ -173,8 +173,9 @@ ____bt1, bt2 = st.columns(2)
 ____bt1.info(f"**Lợi nhuận theo hệ thống (Đã lọc quá mua MFI/RSI):** `{total_strategy_return*100:+.2f}%`")
 ____bt2.info(f"**Lợi nhuận nếu chỉ mua và nắm giữ (Buy & Hold):** `{total_hold_return*100:+.2f}%`")
 
-____st.subheader(f"Biểu đồ kỹ thuật {symbol} & Dải Bollinger Bands (120 phiên)")
-____df_plot = df_clean.tail(120)
+____ngay_moi_nhat = df_clean['time'].iloc[-1]
+____st.subheader(f"Biểu đồ kỹ thuật {symbol} (Cập nhật đến phiên: {ngay_moi_nhat})")
+____df_plot = df_clean.tail(90)
 ____fig = go.Figure()
 ____fig.add_trace(go.Candlestick(x=df_plot['time'], open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name='Giá nến'))
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(color='orange', width=1.5), name='MA20 (Dải giữa)'))
@@ -182,7 +183,7 @@ ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['BB_Upper'], line=dict
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['BB_Lower'], line=dict(color='rgba(173, 216, 230, 0.8)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(173, 216, 230, 0.15)', name='Bollinger Dưới'))
 ____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Mục tiêu Chốt lời")
 ____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_text="Mốc Cắt lỗ")
-____fig.update_xaxes(type='category', tickangle=-45, nticks=30)
+____fig.update_xaxes(type='category', tickangle=-45, nticks=45)
 ____fig.update_layout(xaxis_rangeslider_visible=False, height=520, hovermode='x unified')
 ____st.plotly_chart(fig, use_container_width=True)
 def scan_single_stock(ma):

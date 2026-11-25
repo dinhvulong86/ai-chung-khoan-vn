@@ -262,4 +262,5 @@ ________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ____else:
 ________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 """
-exec('\n'.join((' ' * (len(l) - len(l.lstrip('')))) + l.lstrip('') for l in raw_code.strip().splitlines()))
+exec('\n'.join((' ' * (len(l) - len(l.lstrip(chr(95))))) + l.lstrip(chr(95)) for l in raw_code.strip().splitlines()))
+

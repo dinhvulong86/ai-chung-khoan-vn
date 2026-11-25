@@ -1,4 +1,5 @@
 streamlit
+vnstock
 pandas
 numpy
 scikit-learn

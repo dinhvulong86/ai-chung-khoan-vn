@@ -27,15 +27,22 @@ def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
 ____now_vn = datetime.utcnow() + timedelta(hours=7)
 ____today_str = now_vn.strftime('%Y-%m-%d')
 ____end_ts = int(now_vn.timestamp())
-____headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json'}
+____start_ts = int((now_vn - timedelta(days=days)).timestamp())
+____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
 
-____# 1. Nguồn chính: Endpoint lịch sử giá TCBS (Đầy đủ HOSE, HNX, UPCOM)
+____# 1. Nguồn chính: TCBS với đầy đủ Header trình duyệt (Hỗ trợ 100% HOSE, HNX, UPCOM)
 ____try:
 ________count_back = min(int(days * 0.72), 1000)
 ________url_tcbs = "https://tcbs.com.vn"
-________params_tcbs = {"ticker": symbol.upper(), "type": "stock", "resolution": "D", "to": end_ts, "countBack": count_back}
-________res = requests.get(url_tcbs, params=params_tcbs, headers=headers, timeout=8)
+________params_tcbs = {"ticker": sym, "type": "stock", "resolution": "D", "to": end_ts, "countBack": count_back}
+________headers_tcbs = {
+____________'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+____________'Accept': 'application/json',
+____________'Origin': 'https://tcbs.com.vn',
+____________'Referer': 'https://tcbs.com.vn/'
+________}
+________res = requests.get(url_tcbs, params=params_tcbs, headers=headers_tcbs, timeout=8)
 ________data = res.json().get('data', [])
 ________if data and len(data) >= 30:
 ____________df = pd.DataFrame(data)
@@ -50,11 +57,34 @@ ____________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
 
-____# 2. Nguồn dự phòng: Yahoo Finance (.VN)
+____# 2. Nguồn dự phòng 1: API biểu đồ DNSE / EntradeX (Mở kết nối quốc tế, đầy đủ sàn HNX & UPCOM)
+____if df.empty:
+________try:
+____________url_dnse = "https://entrade.com.vn"
+____________params_dnse = {"symbol": sym, "resolution": "1D", "from": start_ts, "to": end_ts}
+____________headers_dnse = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+____________res_dnse = requests.get(url_dnse, params=params_dnse, headers=headers_dnse, timeout=8).json()
+____________if res_dnse.get('t') and len(res_dnse['t']) >= 30:
+________________df = pd.DataFrame({
+____________________'time': pd.to_datetime(res_dnse['t'], unit='s').strftime('%Y-%m-%d'),
+____________________'open': pd.to_numeric(res_dnse['o'], errors='coerce'),
+____________________'high': pd.to_numeric(res_dnse['h'], errors='coerce'),
+____________________'low': pd.to_numeric(res_dnse['l'], errors='coerce'),
+____________________'close': pd.to_numeric(res_dnse['c'], errors='coerce'),
+____________________'volume': pd.to_numeric(res_dnse['v'], errors='coerce')
+________________})
+________________for col in ['open', 'high', 'low', 'close']:
+____________________if df[col].iloc[-1] < 1000:
+________________________df[col] = df[col] * 1000
+________________df = df.dropna().sort_values('time').reset_index(drop=True)
+________except Exception:
+____________pass
+
+____# 3. Nguồn dự phòng 2: Yahoo Finance (.VN - Chủ yếu cho sàn HOSE)
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
-____________ticker_vn = symbol.upper() if symbol.upper().endswith(".VN") else f"{symbol.upper()}.VN"
+____________ticker_vn = sym if sym.endswith(".VN") else f"{sym}.VN"
 ____________df_yf = yf.download(ticker_vn, start=start_date, end=today_str, progress=False, auto_adjust=True)
 ____________if df_yf is not None and not df_yf.empty:
 ________________if isinstance(df_yf.columns, pd.MultiIndex):
@@ -69,11 +99,16 @@ ________________df = df_yf.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 3. Ghép nến khớp lệnh trong phiên (Real-time Intraday TCBS)
+____# 4. Ghép nến khớp lệnh trong phiên (Real-time Intraday TCBS)
 ____if not df.empty and df['time'].iloc[-1] != today_str:
 ________try:
-____________url_intra = f"https://tcbs.com.vn{symbol.upper()}/investor/his/paging"
-____________res_intra = requests.get(url_intra, params={"page": 0, "size": 500}, headers=headers, timeout=6)
+____________url_intra = f"https://tcbs.com.vn{sym}/investor/his/paging"
+____________headers_intra = {
+________________'User-Agent': 'Mozilla/5.0',
+________________'Origin': 'https://tcbs.com.vn',
+________________'Referer': 'https://tcbs.com.vn/'
+____________}
+____________res_intra = requests.get(url_intra, params={"page": 0, "size": 500}, headers=headers_intra, timeout=6)
 ____________intra_data = res_intra.json().get('data', [])
 ____________if intra_data:
 ________________valid_prices = [float(x['p']) * (1000 if float(x['p']) < 1000 else 1) for x in intra_data if x.get('p') and float(x['p']) > 0]

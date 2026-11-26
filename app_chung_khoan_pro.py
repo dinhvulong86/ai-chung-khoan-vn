@@ -27,60 +27,63 @@ def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
 ____now_vn = datetime.utcnow() + timedelta(hours=7)
 ____today_str = now_vn.strftime('%Y-%m-%d')
 ____end_ts = int(now_vn.timestamp())
-____start_ts = int((now_vn - timedelta(days=days)).timestamp())
 ____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
 
-____# 1. Nguồn chính: TCBS với đầy đủ Header trình duyệt (Hỗ trợ 100% HOSE, HNX, UPCOM)
+____# 1. Nguồn chính: API Vietcap (VCI) - Hạ tầng quốc tế, đầy đủ 100% HOSE, HNX (MBS, CEO...), UPCOM
 ____try:
-________count_back = min(int(days * 0.72), 1000)
-________url_tcbs = "https://tcbs.com.vn"
-________params_tcbs = {"ticker": sym, "type": "stock", "resolution": "D", "to": end_ts, "countBack": count_back}
-________headers_tcbs = {
-____________'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-____________'Accept': 'application/json',
-____________'Origin': 'https://tcbs.com.vn',
-____________'Referer': 'https://tcbs.com.vn/'
+________url_vci = "https://vietcap.com.vn"
+________payload_vci = {
+____________"timeFrame": "ONE_DAY",
+____________"symbols": [sym],
+____________"to": end_ts,
+____________"countBack": min(int(days * 0.72), 1000)
 ________}
-________res = requests.get(url_tcbs, params=params_tcbs, headers=headers_tcbs, timeout=8)
-________data = res.json().get('data', [])
-________if data and len(data) >= 30:
-____________df = pd.DataFrame(data)
-____________df['time'] = pd.to_datetime(df['tradingDate']).dt.strftime('%Y-%m-%d')
-____________df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
+________headers_vci = {
+____________'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+____________'Content-Type': 'application/json',
+____________'Origin': 'https://vietcap.com.vn',
+____________'Referer': 'https://vietcap.com.vn/'
+________}
+________res_vci = requests.post(url_vci, json=payload_vci, headers=headers_vci, timeout=8).json()
+________if isinstance(res_vci, list) and len(res_vci) > 0 and res_vci.get('t'):
+____________d = res_vci
+____________df = pd.DataFrame({
+________________'time': pd.to_datetime(pd.to_numeric(d['t']), unit='s').strftime('%Y-%m-%d'),
+________________'open': pd.to_numeric(d['o'], errors='coerce'),
+________________'high': pd.to_numeric(d['h'], errors='coerce'),
+________________'low': pd.to_numeric(d['l'], errors='coerce'),
+________________'close': pd.to_numeric(d['c'], errors='coerce'),
+________________'volume': pd.to_numeric(d['v'], errors='coerce')
+____________})
 ____________for col in ['open', 'high', 'low', 'close']:
-________________df[col] = pd.to_numeric(df[col], errors='coerce')
 ________________if df[col].iloc[-1] < 1000:
 ____________________df[col] = df[col] * 1000
-____________df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
 ____________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
 
-____# 2. Nguồn dự phòng 1: API biểu đồ DNSE / EntradeX (Mở kết nối quốc tế, đầy đủ sàn HNX & UPCOM)
+____# 2. Nguồn dự phòng 1: API lịch sử giá Simplize (Hỗ trợ đầy đủ 3 sàn từ nước ngoài)
 ____if df.empty:
 ________try:
-____________url_dnse = "https://entrade.com.vn"
-____________params_dnse = {"symbol": sym, "resolution": "1D", "from": start_ts, "to": end_ts}
-____________headers_dnse = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-____________res_dnse = requests.get(url_dnse, params=params_dnse, headers=headers_dnse, timeout=8).json()
-____________if res_dnse.get('t') and len(res_dnse['t']) >= 30:
-________________df = pd.DataFrame({
-____________________'time': pd.to_datetime(res_dnse['t'], unit='s').strftime('%Y-%m-%d'),
-____________________'open': pd.to_numeric(res_dnse['o'], errors='coerce'),
-____________________'high': pd.to_numeric(res_dnse['h'], errors='coerce'),
-____________________'low': pd.to_numeric(res_dnse['l'], errors='coerce'),
-____________________'close': pd.to_numeric(res_dnse['c'], errors='coerce'),
-____________________'volume': pd.to_numeric(res_dnse['v'], errors='coerce')
-________________})
+____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.72), 1000)}"
+____________headers_sim = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+____________res_sim = requests.get(url_sim, headers=headers_sim, timeout=8).json()
+____________items = res_sim.get('data', [])
+____________if items and len(items) >= 30:
+________________df = pd.DataFrame(items)
+________________df['time'] = pd.to_datetime(df['date'], unit='s').dt.strftime('%Y-%m-%d')
+________________df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
 ________________for col in ['open', 'high', 'low', 'close']:
+____________________df[col] = pd.to_numeric(df[col], errors='coerce')
 ____________________if df[col].iloc[-1] < 1000:
 ________________________df[col] = df[col] * 1000
+________________df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
 ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 3. Nguồn dự phòng 2: Yahoo Finance (.VN - Chủ yếu cho sàn HOSE)
+____# 3. Nguồn dự phòng 2: Yahoo Finance (.VN - Sàn HOSE)
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -96,29 +99,6 @@ ________________df_yf['time'] = pd.to_datetime(df_yf['time']).dt.strftime('%Y-%m
 ________________for col in ['open', 'high', 'low', 'close', 'volume']:
 ____________________df_yf[col] = pd.to_numeric(df_yf[col], errors='coerce')
 ________________df = df_yf.dropna().sort_values('time').reset_index(drop=True)
-________except Exception:
-____________pass
-
-____# 4. Ghép nến khớp lệnh trong phiên (Real-time Intraday TCBS)
-____if not df.empty and df['time'].iloc[-1] != today_str:
-________try:
-____________url_intra = f"https://tcbs.com.vn{sym}/investor/his/paging"
-____________headers_intra = {
-________________'User-Agent': 'Mozilla/5.0',
-________________'Origin': 'https://tcbs.com.vn',
-________________'Referer': 'https://tcbs.com.vn/'
-____________}
-____________res_intra = requests.get(url_intra, params={"page": 0, "size": 500}, headers=headers_intra, timeout=6)
-____________intra_data = res_intra.json().get('data', [])
-____________if intra_data:
-________________valid_prices = [float(x['p']) * (1000 if float(x['p']) < 1000 else 1) for x in intra_data if x.get('p') and float(x['p']) > 0]
-________________total_vol = sum(float(x['v']) for x in intra_data if x.get('v'))
-________________if valid_prices:
-____________________close_p = valid_prices.pop(0)
-____________________open_p = valid_prices[-1] if valid_prices else close_p
-____________________all_p = valid_prices + [close_p]
-____________________new_row = pd.DataFrame([{'time': today_str, 'open': open_p, 'high': max(all_p), 'low': min(all_p), 'close': close_p, 'volume': total_vol}])
-____________________df = pd.concat([df, new_row], ignore_index=True)
 ________except Exception:
 ____________pass
 

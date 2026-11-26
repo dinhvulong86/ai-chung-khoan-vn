@@ -27,10 +27,11 @@ def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
 ____now_vn = datetime.utcnow() + timedelta(hours=7)
 ____today_str = now_vn.strftime('%Y-%m-%d')
 ____end_ts = int(now_vn.timestamp())
+____start_ts = int((now_vn - timedelta(days=days)).timestamp())
 ____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
 
-____# 1. Nguồn chính: API Vietcap (VCI) - Hạ tầng quốc tế, đầy đủ 100% HOSE, HNX (MBS, CEO...), UPCOM
+____# 1. Nguồn 1: Vietcap (VCI) - Đầy đủ 100% HOSE, HNX (MBS, CEO...), UPCOM
 ____try:
 ________url_vci = "https://vietcap.com.vn"
 ________payload_vci = {
@@ -46,44 +47,70 @@ ____________'Origin': 'https://vietcap.com.vn',
 ____________'Referer': 'https://vietcap.com.vn/'
 ________}
 ________res_vci = requests.post(url_vci, json=payload_vci, headers=headers_vci, timeout=8).json()
-________if isinstance(res_vci, list) and len(res_vci) > 0 and res_vci.get('t'):
-____________d = res_vci
-____________df = pd.DataFrame({
-________________'time': pd.to_datetime(pd.to_numeric(d['t']), unit='s').strftime('%Y-%m-%d'),
-________________'open': pd.to_numeric(d['o'], errors='coerce'),
-________________'high': pd.to_numeric(d['h'], errors='coerce'),
-________________'low': pd.to_numeric(d['l'], errors='coerce'),
-________________'close': pd.to_numeric(d['c'], errors='coerce'),
-________________'volume': pd.to_numeric(d['v'], errors='coerce')
-____________})
-____________for col in ['open', 'high', 'low', 'close']:
-________________if df[col].iloc[-1] < 1000:
-____________________df[col] = df[col] * 1000
-____________df = df.dropna().sort_values('time').reset_index(drop=True)
+________if isinstance(res_vci, list) and len(res_vci) > 0:
+____________d = res_vci.pop(0)
+____________if isinstance(d, dict) and d.get('t') and len(d.get('t')) >= 30:
+________________df = pd.DataFrame({
+____________________'time': pd.to_datetime(pd.to_numeric(d.get('t')), unit='s').strftime('%Y-%m-%d'),
+____________________'open': pd.to_numeric(d.get('o'), errors='coerce'),
+____________________'high': pd.to_numeric(d.get('h'), errors='coerce'),
+____________________'low': pd.to_numeric(d.get('l'), errors='coerce'),
+____________________'close': pd.to_numeric(d.get('c'), errors='coerce'),
+____________________'volume': pd.to_numeric(d.get('v'), errors='coerce')
+________________})
+________________for col in ['open', 'high', 'low', 'close']:
+____________________if df[col].iloc[-1] < 1000:
+________________________df[col] = df[col] * 1000
+________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
 
-____# 2. Nguồn dự phòng 1: API lịch sử giá Simplize (Hỗ trợ đầy đủ 3 sàn từ nước ngoài)
+____# 2. Nguồn 2: DNSE / EntradeX - Hạ tầng mở quốc tế, đầy đủ sàn HNX & UPCOM
 ____if df.empty:
 ________try:
-____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.72), 1000)}"
-____________headers_sim = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-____________res_sim = requests.get(url_sim, headers=headers_sim, timeout=8).json()
-____________items = res_sim.get('data', [])
-____________if items and len(items) >= 30:
-________________df = pd.DataFrame(items)
-________________df['time'] = pd.to_datetime(df['date'], unit='s').dt.strftime('%Y-%m-%d')
-________________df = df.loc[:, ('time', 'open', 'high', 'low', 'close', 'volume')].copy()
+____________url_dnse = "https://entrade.com.vn"
+____________params_dnse = {"symbol": sym, "resolution": "1D", "from": start_ts, "to": end_ts}
+____________res_dnse = requests.get(url_dnse, params=params_dnse, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8).json()
+____________if isinstance(res_dnse, dict) and res_dnse.get('t') and len(res_dnse.get('t')) >= 30:
+________________df = pd.DataFrame({
+____________________'time': pd.to_datetime(pd.to_numeric(res_dnse.get('t')), unit='s').strftime('%Y-%m-%d'),
+____________________'open': pd.to_numeric(res_dnse.get('o'), errors='coerce'),
+____________________'high': pd.to_numeric(res_dnse.get('h'), errors='coerce'),
+____________________'low': pd.to_numeric(res_dnse.get('l'), errors='coerce'),
+____________________'close': pd.to_numeric(res_dnse.get('c'), errors='coerce'),
+____________________'volume': pd.to_numeric(res_dnse.get('v'), errors='coerce')
+________________})
 ________________for col in ['open', 'high', 'low', 'close']:
-____________________df[col] = pd.to_numeric(df[col], errors='coerce')
 ____________________if df[col].iloc[-1] < 1000:
 ________________________df[col] = df[col] * 1000
-________________df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
 ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 3. Nguồn dự phòng 2: Yahoo Finance (.VN - Sàn HOSE)
+____# 3. Nguồn 3: Simplize (Đúng tên cột priceOpen, priceClose, totalVolume)
+____if df.empty:
+________try:
+____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.72), 1000)}"
+____________res_sim = requests.get(url_sim, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8).json()
+____________items = res_sim.get('data', [])
+____________if isinstance(items, list) and len(items) >= 30:
+________________raw_df = pd.DataFrame(items)
+________________df = pd.DataFrame({
+____________________'time': pd.to_datetime(raw_df.get('date'), unit='s').dt.strftime('%Y-%m-%d'),
+____________________'open': pd.to_numeric(raw_df.get('priceOpen'), errors='coerce'),
+____________________'high': pd.to_numeric(raw_df.get('priceHigh'), errors='coerce'),
+____________________'low': pd.to_numeric(raw_df.get('priceLow'), errors='coerce'),
+____________________'close': pd.to_numeric(raw_df.get('priceClose'), errors='coerce'),
+____________________'volume': pd.to_numeric(raw_df.get('totalVolume'), errors='coerce')
+________________})
+________________for col in ['open', 'high', 'low', 'close']:
+____________________if df[col].iloc[-1] < 1000:
+________________________df[col] = df[col] * 1000
+________________df = df.dropna().sort_values('time').reset_index(drop=True)
+________except Exception:
+____________pass
+
+____# 4. Nguồn 4: Yahoo Finance (.VN - Dự phòng sàn HOSE)
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')

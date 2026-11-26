@@ -584,47 +584,99 @@ ____________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ________else:
 ____________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 with tab3:
-____st.subheader("📝 Nhật Ký Theo Dõi & Kiểm Chứng Thứ Tự Chạm High/Low Thực Tế")
-____st.write("Hệ thống tự động kiểm tra lịch sử Giá Cao Nhất (High) và Giá Thấp Nhất (Low) qua từng phiên kể từ ngày lưu lệnh để xác định chính xác ngưỡng nào bị chạm trước.")
+____st.subheader("📝 Nhật Ký Thực Chiến (Cho phép Nhập & Chỉnh Sửa Trực Tiếp)")
+____st.write("Bạn có thể **nhập thông số khớp lệnh thực tế** bên dưới, hoặc **bấm đúp chuột trực tiếp vào từng ô trên bảng** để chỉnh sửa Giá vào, Cắt lỗ, Chốt lời, Ngày đóng và Ghi chú.")
+
+____# 1. Form nhập lệnh mới (Cho phép tự nhập giá khớp thực tế hoặc để 0 để tự lấy giá thị trường)
 ____with st.form("form_them_ma"):
-________fc1, fc2, fc3 = st.columns((2, 3, 1))
-________ma_luu = fc1.text_input("Mã cổ phiếu muốn lưu:", placeholder="VD: HAG, MBS, FPT").upper().strip()
-________ghi_chu = fc2.text_input("Ghi chú tín hiệu:", value="Điểm mua chuẩn R:R >= 1.5")
-________fc3.write("")
-________fc3.write("")
-________submit_luu = fc3.form_submit_button("➕ Lưu vào Nhật ký", use_container_width=True)
+________fc1, fc2, fc3, fc4, fc5 = st.columns((1.2, 1.3, 1.3, 1.3, 2))
+________ma_luu = fc1.text_input("Mã CP (*):", placeholder="VD: POW, HAG").upper().strip()
+________gia_vao_tay = fc2.number_input("Giá vào (đ) (0=Tự lấy):", min_value=0, value=0, step=50)
+________cat_lo_tay = fc3.number_input("Cắt lỗ (đ) (0=Tự tính):", min_value=0, value=0, step=50)
+________chot_loi_tay = fc4.number_input("Chốt lời (đ) (0=Tự tính):", min_value=0, value=0, step=50)
+________ghi_chu = fc5.text_input("Ghi chú:", value="Điểm mua chuẩn R:R >= 1.5")
+________submit_luu = st.form_submit_button("➕ Thêm lệnh vào Nhật ký", type="primary")
+
 ____if submit_luu and ma_luu:
 ________info_ma = scan_single_stock(ma_luu)
-________if info_ma:
-____________now_str = (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d')
+________now_str = (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d')
+________if info_ma or gia_vao_tay > 0:
+____________g_vao = float(gia_vao_tay) if gia_vao_tay > 0 else float(info_ma["Giá hiện tại (đ)"])
+____________c_lo = float(cat_lo_tay) if cat_lo_tay > 0 else (float(info_ma["Cắt lỗ (đ)"]) if info_ma else round(g_vao * 0.93, 0))
+____________c_loi = float(chot_loi_tay) if chot_loi_tay > 0 else (float(info_ma["Chốt lời (đ)"]) if info_ma else round(g_vao * 1.10, 0))
 ____________st.session_state.nhat_ky_lenh.append({
-________________"Ngày quét": now_str,
+________________"Ngày vào": now_str,
 ________________"Mã CP": ma_luu,
-________________"Giá vào (đ)": info_ma["Giá hiện tại (đ)"],
-________________"Cắt lỗ (đ)": info_ma["Cắt lỗ (đ)"],
-________________"Chốt lời (đ)": info_ma["Chốt lời (đ)"],
+________________"Giá vào (đ)": round(g_vao, 0),
+________________"Cắt lỗ (đ)": round(c_lo, 0),
+________________"Chốt lời (đ)": round(c_loi, 0),
+________________"Giá đóng tay (đ)": 0.0,
+________________"Ngày đóng": "",
 ________________"Ghi chú": ghi_chu
 ____________})
-____________st.success(f"Đã lưu mã {ma_luu} (Giá vào: {info_ma['Giá hiện tại (đ)']:,.0f} đ) vào nhật ký theo dõi!")
+____________st.success(f"Đã lưu lệnh **{ma_luu}** (Giá vào: {g_vao:,.0f} đ) vào nhật ký!")
 ________else:
-____________st.error(f"Không lấy được dữ liệu của mã {ma_luu} để lưu.")
+____________st.error(f"Không lấy được dữ liệu của mã {ma_luu}. Bạn hãy tự nhập Giá vào (đ) ở ô bên cạnh nhé!")
+
+____# 2. Bảng chỉnh sửa trực tiếp (Data Editor) cho các thông số đầu vào
 ____if st.session_state.nhat_ky_lenh:
+________st.markdown("#### ✏️ Bảng điều chỉnh thông số lệnh (Bấm đúp vào ô bất kỳ để sửa, chọn dòng và nhấn Delete để xóa):")
+________df_edit_input = pd.DataFrame(st.session_state.nhat_ky_lenh)
+________for col_req in ["Ngày vào", "Mã CP", "Giá vào (đ)", "Cắt lỗ (đ)", "Chốt lời (đ)", "Giá đóng tay (đ)", "Ngày đóng", "Ghi chú"]:
+____________if col_req not in df_edit_input.columns:
+________________df_edit_input[col_req] = 0.0 if "(đ)" in col_req else ""
+
+________edited_df = st.data_editor(
+____________df_edit_input,
+____________num_rows="dynamic",
+____________use_container_width=True,
+____________key="editor_nhat_ky",
+____________column_config={
+________________"Giá vào (đ)": st.column_config.NumberColumn(format="%d"),
+________________"Cắt lỗ (đ)": st.column_config.NumberColumn(format="%d"),
+________________"Chốt lời (đ)": st.column_config.NumberColumn(format="%d"),
+________________"Giá đóng tay (đ)": st.column_config.NumberColumn(help="Nhập giá bán thực tế nếu bạn đã chủ động chốt lời/cắt lỗ tay (để 0 nếu hệ thống tự theo dõi)", format="%d")
+____________}
+________)
+________st.session_state.nhat_ky_lenh = edited_df.to_dict('records')
+
+________# 3. Bảng tổng hợp chấm điểm tự động & Tính Lãi/Lỗ ròng
+________st.markdown("#### 📊 Kết quả chấm điểm & Lãi/Lỗ thực tế (Đã trừ 0,3% thuế phí):")
 ________bang_cham_diem = []
 ________so_lenh_thang = 0
 ________tong_lenh_xac_dinh = 0
+
 ________for item in st.session_state.nhat_ky_lenh:
-____________ma_cp = item["Mã CP"]
-____________ngay_vao = item["Ngày quét"]
-____________gia_vao = float(item["Giá vào (đ)"])
-____________cat_lo = float(item["Cắt lỗ (đ)"])
-____________chot_loi = float(item["Chốt lời (đ)"])
-____________gia_khop, ket_qua, ngay_dong = check_journal_trade_history(ma_cp, ngay_vao, gia_vao, cat_lo, chot_loi)
+____________ma_cp = str(item.get("Mã CP", "")).upper().strip()
+____________if not ma_cp:
+________________continue
+____________ngay_vao = str(item.get("Ngày vào", "")).strip()
+____________gia_vao = float(item.get("Giá vào (đ)", 0) or 0)
+____________cat_lo = float(item.get("Cắt lỗ (đ)", 0) or 0)
+____________chot_loi = float(item.get("Chốt lời (đ)", 0) or 0)
+____________gia_dong_tay = float(item.get("Giá đóng tay (đ)", 0) or 0)
+____________ngay_dong_tay = str(item.get("Ngày đóng", "")).strip()
+
+____________if gia_vao <= 0:
+________________continue
+
+____________if gia_dong_tay > 0:
+________________gia_khop = gia_dong_tay
+________________ngay_dong = ngay_dong_tay if ngay_dong_tay else (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d')
+________________ket_qua = "✅ ĐÃ CHỐT TAY (LÃI)" if ((gia_khop - gia_vao) / gia_vao * 100 - 0.3) > 0 else "🔻 ĐÃ CẮT TAY (LỖ)"
+____________else:
+________________gia_khop, ket_qua, ngay_dong = check_journal_trade_history(ma_cp, ngay_vao, gia_vao, cat_lo, chot_loi)
+________________if ngay_dong_tay:
+____________________ngay_dong = ngay_dong_tay
+
 ____________lai_lo_rong = ((gia_khop - gia_vao) / gia_vao) * 100 - 0.3
-____________if "ĐẠT CHỐT LỜI" in ket_qua:
+
+____________if "ĐẠT CHỐT LỜI" in ket_qua or "CHỐT TAY" in ket_qua:
 ________________so_lenh_thang += 1
 ________________tong_lenh_xac_dinh += 1
-____________elif "CHẠM CẮT LỖ" in ket_qua:
+____________elif "CHẠM CẮT LỖ" in ket_qua or "CẮT TAY" in ket_qua:
 ________________tong_lenh_xac_dinh += 1
+
 ____________bang_cham_diem.append({
 ________________"Ngày vào": ngay_vao,
 ________________"Mã CP": ma_cp,
@@ -635,19 +687,19 @@ ________________"Chốt lời (đ)": round(chot_loi, 0),
 ________________"Ngày đóng": ngay_dong,
 ________________"Lãi/Lỗ ròng (%)": f"{lai_lo_rong:+.2f}%",
 ________________"Trạng thái": ket_qua,
-________________"Ghi chú": item["Ghi chú"]
+________________"Ghi chú": item.get("Ghi chú", "")
 ____________})
-________df_nk = pd.DataFrame(bang_cham_diem)
-________st.dataframe(df_nk, use_container_width=True, hide_index=True)
-________if tong_lenh_xac_dinh > 0:
-____________st.metric("Tỷ lệ thắng thực chiến (các lệnh đã chốt/cắt lỗ)", f"{so_lenh_thang}/{tong_lenh_xac_dinh} ({so_lenh_thang/tong_lenh_xac_dinh*100:.0f}%)")
-________else:
-____________st.caption("ℹ️ Tỷ lệ thắng sẽ tự động tính toán ngay khi có lệnh chạm mốc Chốt lời hoặc Cắt lỗ theo dữ liệu High/Low.")
-________c_btn1, c_btn2 = st.columns(2)
-________csv_data = df_nk.to_csv(index=False).encode('utf-8-sig')
-________c_btn1.download_button("📥 Tải Nhật Ký về máy (CSV)", data=csv_data, file_name="nhat_ky_chung_khoan_v3_1.csv", mime="text/csv")
-________if c_btn2.button("🗑️ Xóa toàn bộ nhật ký làm lại"):
-____________st.session_state.nhat_ky_lenh = []
-____________st.rerun()
+
+________if bang_cham_diem:
+____________df_nk = pd.DataFrame(bang_cham_diem)
+____________st.dataframe(df_nk, use_container_width=True, hide_index=True)
+____________if tong_lenh_xac_dinh > 0:
+________________st.metric("Tỷ lệ thắng thực chiến (các lệnh đã đóng)", f"{so_lenh_thang}/{tong_lenh_xac_dinh} ({so_lenh_thang/tong_lenh_xac_dinh*100:.0f}%)")
+____________c_btn1, c_btn2 = st.columns(2)
+____________csv_data = df_nk.to_csv(index=False).encode('utf-8-sig')
+____________c_btn1.download_button("📥 Tải Nhật Ký về máy (CSV)", data=csv_data, file_name="nhat_ky_thuc_chien.csv", mime="text/csv")
+____________if c_btn2.button("🗑️ Xóa toàn bộ nhật ký làm lại"):
+________________st.session_state.nhat_ky_lenh = []
+________________st.rerun()
 """
 exec('\n'.join((' ' * (len(l) - len(l.lstrip(chr(95))))) + l.lstrip(chr(95)) for l in raw_code.strip().splitlines()))

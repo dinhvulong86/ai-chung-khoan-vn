@@ -264,7 +264,7 @@ ________"cloud_top": cloud_top,
 ________"cloud_bot": cloud_bot
 ____}
 def run_strategy_backtest(df_clean: pd.DataFrame):
-____"""Kiểm thử định lượng trên 150 phiên: Áp dụng đúng quy tắc Xu hướng + Sát nền MA20 + Cắt lỗ hỗ trợ"""
+____# Kiem thu dinh luong tren 150 phien: Ap dung dung quy tac Xu huong + Sat nen MA20 + Cat lo ho tro
 ____df_bt = df_clean.tail(150).copy().reset_index(drop=True)
 ____in_pos = False
 ____entry_p = 0.0

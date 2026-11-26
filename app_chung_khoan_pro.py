@@ -165,7 +165,7 @@ ____df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 ____return df
 
 def evaluate_stock_signals(df_clean: pd.DataFrame, ai_pct_change: float = 0.0, ai_is_reliable: bool = False):
-____#"""Ưu tiên: Xu hướng tăng + Dòng tiền xác nhận + Điểm mua sát nền + Tỷ lệ R:R >= 1.5"""
+____# Uu tien: Xu huong tang + Dong tien xac nhan + Diem mua sat nen + Ty le R:R >= 1.5
 ____last = df_clean.iloc[-1]
 ____prev = df_clean.iloc[-2]
 ____curr_p = float(last['close'])

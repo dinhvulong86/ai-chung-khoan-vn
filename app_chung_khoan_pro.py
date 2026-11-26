@@ -14,7 +14,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (V3.1 Pro)", layout="wide")
 st.title("🚀 Hệ Thống Phân Tích Xu Hướng, Dòng Tiền & Tỷ Lệ R:R (V3.1)")
 st.markdown("Ưu tiên **Xu hướng tăng**, **Dòng tiền xác nhận**, **Điểm mua sát nền MA20** và **Tỷ lệ Lợi nhuận/Rủi ro (R:R ≥ 1.5)**.")
-
+if st.button("🔄 Làm mới dữ liệu trực tiếp (Xóa Cache & Cập nhật giá mới nhất)"):
+    st.cache_data.clear()
+    st.rerun()
 if "nhat_ky_lenh" not in st.session_state:
 ____st.session_state.nhat_ky_lenh = [
 ________{"Ngày quét": "2026-11-25", "Mã CP": "HAG", "Giá vào (đ)": 13850, "Cắt lỗ (đ)": 13314, "Chốt lời (đ)": 14654, "Ghi chú": "Mẫu Bùng nổ Vol"}

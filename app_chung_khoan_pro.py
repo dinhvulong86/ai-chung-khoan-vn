@@ -252,28 +252,28 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     final_lb = np.zeros(n)
     supertrend = np.zeros(n)
     st_dir = np.ones(n, dtype=int)
-    for i in range(n):
-    if i == 0:
-    final_ub[i] = basic_ub[i]
-    final_lb[i] = basic_lb[i]
-    supertrend[i] = basic_lb[i]
-    continue
-    final_ub[i] = basic_ub[i] if (basic_ub[i] < final_ub[i-1] or close_vals[i-1] > final_ub[i-1]) else final_ub[i-1]
-    final_lb[i] = basic_lb[i] if (basic_lb[i] > final_lb[i-1] or close_vals[i-1] < final_lb[i-1]) else final_lb[i-1]
-    if st_dir[i-1] == 1:
-    if close_vals[i] < final_lb[i]:
-    st_dir[i] = -1
-    supertrend[i] = final_ub[i]
-    else:
-    st_dir[i] = 1
-    supertrend[i] = final_lb[i]
-    else:
-    if close_vals[i] > final_ub[i]:
-    st_dir[i] = 1
-    supertrend[i] = final_lb[i]
-    else:
-    st_dir[i] = -1
-    supertrend[i] = final_ub[i]
+      for i in range(n):
+        if i == 0:
+            final_ub[i] = basic_ub[i]
+            final_lb[i] = basic_lb[i]
+            supertrend[i] = basic_lb[i]
+            continue
+        final_ub[i] = basic_ub[i] if (basic_ub[i] < final_ub[i-1] or close_vals[i-1] > final_ub[i-1]) else final_ub[i-1]
+        final_lb[i] = basic_lb[i] if (basic_lb[i] > final_lb[i-1] or close_vals[i-1] < final_lb[i-1]) else final_lb[i-1]
+        if st_dir[i-1] == 1:
+            if close_vals[i] < final_lb[i]:
+                st_dir[i] = -1
+                supertrend[i] = final_ub[i]
+            else:
+                st_dir[i] = 1
+                supertrend[i] = final_lb[i]
+        else:
+            if close_vals[i] > final_ub[i]:
+                st_dir[i] = 1
+                supertrend[i] = final_lb[i]
+            else:
+                st_dir[i] = -1
+                supertrend[i] = final_ub[i]
     df['SuperTrend'] = supertrend
     df['ST_Dir'] = st_dir
     # Stochastic Oscillator (14, 3, 3)

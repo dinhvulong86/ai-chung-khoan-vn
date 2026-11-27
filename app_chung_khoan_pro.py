@@ -179,8 +179,22 @@ ________return 1.0
 @st.cache_data(ttl=300, show_spinner=False)
 def get_vnindex_regime() -> dict:
 ____try:
-________df_vn = get_stock_data("VNINDEX", days=200)
-________if df_vn.empty or len(df_vn) < 60:
+________df_vn = get_stock_data("VNINDEX", days=350)
+________if df_vn.empty or len(df_vn) < 55:
+____________now_vn = datetime.utcnow() + timedelta(hours=7)
+____________end_ts = int(now_vn.timestamp())
+____________start_ts = int((now_vn - timedelta(days=350)).timestamp())
+____________res = requests.get("https://entrade.com.vn", params={"symbol": "VNINDEX", "resolution": "1D", "from": start_ts, "to": end_ts}, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8).json()
+____________if isinstance(res, dict) and res.get('t'):
+________________df_vn = pd.DataFrame({
+____________________'time': pd.to_datetime(pd.to_numeric(res.get('t')), unit='s').strftime('%Y-%m-%d'),
+____________________'open': pd.to_numeric(res.get('o'), errors='coerce'),
+____________________'high': pd.to_numeric(res.get('h'), errors='coerce'),
+____________________'low': pd.to_numeric(res.get('l'), errors='coerce'),
+____________________'close': pd.to_numeric(res.get('c'), errors='coerce'),
+____________________'volume': pd.to_numeric(res.get('v'), errors='coerce')
+________________}).dropna().sort_values('time').reset_index(drop=True)
+________if df_vn.empty or len(df_vn) < 55:
 ____________return {"status": "NEUTRAL", "label": "🟡 VN-Index: Chưa đủ dữ liệu", "desc": "Đi vốn thận trọng theo từng mã.", "scale": 1.0}
 ________df_vn = add_technical_indicators(df_vn).dropna()
 ________last = df_vn.iloc[-1]
@@ -191,21 +205,21 @@ ________vn_adx = float(last['ADX'])
 ________if vn_st == 1 and vn_close > vn_ma20 and vn_adx >= 20:
 ____________return {
 ________________"status": "BULL",
-________________"label": f"🟢 LA BÀN VN-INDEX: UPTREND THUẬN LỢI ({vn_close:,.1f} điểm | Trên MA20 & ST Xanh)",
+________________"label": f"🟢 LA BÀN VN-INDEX: UPTREND THUẬN LỢI ({vn_close:,.2f} điểm | Trên MA20 & ST Xanh)",
 ________________"desc": "Thị trường chung ủng hộ xu hướng tăng — Cho phép đi 100% quy mô vốn tiêu chuẩn.",
 ________________"scale": 1.0
 ____________}
 ________elif vn_st == -1 and vn_close < vn_ma20:
 ____________return {
 ________________"status": "BEAR",
-________________"label": f"🔴 LA BÀN VN-INDEX: RỦI RO CAO ({vn_close:,.1f} điểm | Thủng MA20 & ST Đỏ)",
+________________"label": f"🔴 LA BÀN VN-INDEX: RỦI RO CAO ({vn_close:,.2f} điểm | Thủng MA20 & ST Đỏ)",
 ________________"desc": "Thị trường chung điều chỉnh/biến cố ngoại cảnh — Hạn chế mở mua mới, ưu tiên bảo toàn vốn.",
 ________________"scale": 0.0
 ____________}
 ________else:
 ____________return {
 ________________"status": "SIDEWAY",
-________________"label": f"🟡 LA BÀN VN-INDEX: ĐI NGANG / PHÂN HÓA KÉO TRỤ ({vn_close:,.1f} điểm | ADX {vn_adx:.0f})",
+________________"label": f"🟡 LA BÀN VN-INDEX: ĐI NGANG / PHÂN HÓA KÉO TRỤ ({vn_close:,.2f} điểm | ADX {vn_adx:.0f})",
 ________________"desc": "Dòng tiền phân hóa — Khuyến nghị giảm 50% quy mô đi vốn, chỉ chọn mã bùng nổ Vol >= 150%.",
 ________________"scale": 0.5
 ____________}
@@ -807,7 +821,6 @@ ____"🏗️ Nhóm Bất động sản & Khu công nghiệp": ('CEO', 'DIG', 'DX
 ____"🔥 Nhóm Sàn HNX Tiêu biểu": ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'BVS', 'LAS', 'PVC', 'DTD', 'TIG', 'L14', 'NTP', 'PLC', 'TVD', 'NBC', 'DDG', 'NDN', 'MST', 'AMV', 'TAR', 'VC3', 'NRC'),
 ____"⚙️ Nhóm Thép - Dầu khí - Hóa chất - Công nghệ": ('HPG', 'HSG', 'NKG', 'VGS', 'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'FPT', 'CMG', 'ELC', 'CTR', 'VGI', 'DGC', 'DCM', 'DPM', 'CSV', 'GMD', 'HAH', 'MWG', 'FRT', 'DGW', 'PNJ', 'VHC', 'ANV', 'DBC', 'HAG')
 }
-tab1, tab2, tab3 = st.tabs(["📊 Phân Tích & Backtest Chuyên Sâu", "🔍 Quét Đa Trạng Thái & Tỷ Lệ R:R", "📝 Nhật Ký Thực Chiến (High/Low)"])
 vn_compass = get_vnindex_regime()
 if vn_compass["status"] == "BULL":
 ____st.success(f"**{vn_compass['label']}** — {vn_compass['desc']}")

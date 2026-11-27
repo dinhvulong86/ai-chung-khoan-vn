@@ -212,284 +212,284 @@ def get_dynamic_top_tickers(fallback_list):
 # --- TÍNH CHỈ BÁO KỸ THUẬT + OBV + NHẬN DIỆN PHÂN KỲ RSI ---
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
-df = df.copy()
-df['MA20'] = df['close'].rolling(window=20).mean()
-df['MA50'] = df['close'].rolling(window=50).mean()
-df['STD20'] = df['close'].rolling(window=20).std()
-df['BB_Upper'] = df['MA20'] + (2 * df['STD20'])
-df['BB_Lower'] = df['MA20'] - (2 * df['STD20'])
-df['Vol_MA20'] = df['volume'].rolling(window=20).mean()
-df['Vol_Ratio'] = (df['volume'] / df['Vol_MA20'].replace(0, np.nan)) * 100
-# OBV (On-Balance Volume) & OBV_MA20 (Dòng tiền tích lũy)
-obv_dir = np.sign(df['close'].diff()).fillna(0)
-df['OBV'] = (obv_dir * df['volume']).cumsum()
-df['OBV_MA20'] = df['OBV'].rolling(window=20).mean()
-# ATR (14) chuẩn Wilder
-tr1 = df['high'] - df['low']
-tr2 = (df['high'] - df['close'].shift(1)).abs()
-tr3 = (df['low'] - df['close'].shift(1)).abs()
-df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-df['ATR'] = df['TR'].ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-# ADX (14) & +DI / -DI
-up_move = df['high'] - df['high'].shift(1)
-down_move = df['low'].shift(1) - df['low']
-plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-atr_14 = df['ATR'].replace(0, np.nan)
-df['Plus_DI'] = 100 * (pd.Series(plus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
-df['Minus_DI'] = 100 * (pd.Series(minus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
-di_sum = (df['Plus_DI'] + df['Minus_DI']).replace(0, np.nan)
-dx = 100 * ((df['Plus_DI'] - df['Minus_DI']).abs() / di_sum)
-df['ADX'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-# SuperTrend (10, 3.0)
-st_atr = df['TR'].ewm(alpha=1/10, min_periods=1, adjust=False).mean()
-hl2 = (df['high'] + df['low']) / 2
-basic_ub = (hl2 + 3.0 * st_atr).fillna(df['close']).values
-basic_lb = (hl2 - 3.0 * st_atr).fillna(df['close']).values
-close_vals = df['close'].values
-n = len(df)
-final_ub = np.zeros(n)
-final_lb = np.zeros(n)
-supertrend = np.zeros(n)
-st_dir = np.ones(n, dtype=int)
-for i in range(n):
-if i == 0:
-final_ub[i] = basic_ub[i]
-final_lb[i] = basic_lb[i]
-supertrend[i] = basic_lb[i]
-continue
-final_ub[i] = basic_ub[i] if (basic_ub[i] < final_ub[i-1] or close_vals[i-1] > final_ub[i-1]) else final_ub[i-1]
-final_lb[i] = basic_lb[i] if (basic_lb[i] > final_lb[i-1] or close_vals[i-1] < final_lb[i-1]) else final_lb[i-1]
-if st_dir[i-1] == 1:
-if close_vals[i] < final_lb[i]:
-st_dir[i] = -1
-supertrend[i] = final_ub[i]
-else:
-st_dir[i] = 1
-supertrend[i] = final_lb[i]
-else:
-if close_vals[i] > final_ub[i]:
-st_dir[i] = 1
-supertrend[i] = final_lb[i]
-else:
-st_dir[i] = -1
-supertrend[i] = final_ub[i]
-df['SuperTrend'] = supertrend
-df['ST_Dir'] = st_dir
-# Stochastic Oscillator (14, 3, 3)
-low_14 = df['low'].rolling(window=14).min()
-high_14 = df['high'].rolling(window=14).max()
-denom_stoch = (high_14 - low_14).replace(0, np.nan)
-fast_k = (100 * ((df['close'] - low_14) / denom_stoch)).fillna(50.0)
-df['Stoch_K'] = fast_k.rolling(window=3, min_periods=1).mean()
-df['Stoch_D'] = df['Stoch_K'].rolling(window=3, min_periods=1).mean()
-# Ichimoku Cloud (9, 26, 52)
-df['Tenkan'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
-df['Kijun'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
-df['Span_A_Raw'] = (df['Tenkan'] + df['Kijun']) / 2
-df['Span_B_Raw'] = (df['high'].rolling(52).max() + df['low'].rolling(52).min()) / 2
-df['Senkou_A'] = df['Span_A_Raw'].shift(26)
-df['Senkou_B'] = df['Span_B_Raw'].shift(26)
-# Hộp Sideway & Đỉnh/Đáy 20 phiên
-df['High_20'] = df['high'].rolling(window=20).max()
-df['Low_20'] = df['low'].rolling(window=20).min()
-df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20'].replace(0, np.nan)) * 100
-# RSI (14) chuẩn Wilder
-delta = df['close'].diff()
-gain = delta.where(delta > 0, 0.0)
-loss = -delta.where(delta < 0, 0.0)
-avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-rsi_vals = np.where(
-(avg_gain == 0) & (avg_loss == 0), 50.0,
-np.where(avg_loss == 0, 100.0, 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss.replace(0, np.nan)))))
-)
-df['RSI'] = pd.Series(rsi_vals, index=df.index)
-# MFI (14)
-tp = (df['high'] + df['low'] + df['close']) / 3
-raw_mf = tp * df['volume']
-pos_mf = pd.Series(np.where(tp > tp.shift(1), raw_mf, 0.0), index=df.index)
-neg_mf = pd.Series(np.where(tp < tp.shift(1), raw_mf, 0.0), index=df.index)
-pos_sum = pos_mf.rolling(window=14).sum()
-neg_sum = neg_mf.rolling(window=14).sum()
-mfi_vals = np.where(
-(pos_sum == 0) & (neg_sum == 0), 50.0,
-np.where(neg_sum == 0, 100.0,
-np.where(pos_sum == 0, 0.0, 100.0 - (100.0 / (1.0 + (pos_sum / neg_sum.replace(0, np.nan))))))
-)
-df['MFI'] = pd.Series(mfi_vals, index=df.index)
-# MACD (12, 26, 9)
-exp1 = df['close'].ewm(span=12, adjust=False).mean()
-exp2 = df['close'].ewm(span=26, adjust=False).mean()
-df['MACD'] = exp1 - exp2
-df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-return df
+    df = df.copy()
+    df['MA20'] = df['close'].rolling(window=20).mean()
+    df['MA50'] = df['close'].rolling(window=50).mean()
+    df['STD20'] = df['close'].rolling(window=20).std()
+    df['BB_Upper'] = df['MA20'] + (2 * df['STD20'])
+    df['BB_Lower'] = df['MA20'] - (2 * df['STD20'])
+    df['Vol_MA20'] = df['volume'].rolling(window=20).mean()
+    df['Vol_Ratio'] = (df['volume'] / df['Vol_MA20'].replace(0, np.nan)) * 100
+    # OBV (On-Balance Volume) & OBV_MA20 (Dòng tiền tích lũy)
+    obv_dir = np.sign(df['close'].diff()).fillna(0)
+    df['OBV'] = (obv_dir * df['volume']).cumsum()
+    df['OBV_MA20'] = df['OBV'].rolling(window=20).mean()
+    # ATR (14) chuẩn Wilder
+    tr1 = df['high'] - df['low']
+    tr2 = (df['high'] - df['close'].shift(1)).abs()
+    tr3 = (df['low'] - df['close'].shift(1)).abs()
+    df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    df['ATR'] = df['TR'].ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    # ADX (14) & +DI / -DI
+    up_move = df['high'] - df['high'].shift(1)
+    down_move = df['low'].shift(1) - df['low']
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    atr_14 = df['ATR'].replace(0, np.nan)
+    df['Plus_DI'] = 100 * (pd.Series(plus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
+    df['Minus_DI'] = 100 * (pd.Series(minus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
+    di_sum = (df['Plus_DI'] + df['Minus_DI']).replace(0, np.nan)
+    dx = 100 * ((df['Plus_DI'] - df['Minus_DI']).abs() / di_sum)
+    df['ADX'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    # SuperTrend (10, 3.0)
+    st_atr = df['TR'].ewm(alpha=1/10, min_periods=1, adjust=False).mean()
+    hl2 = (df['high'] + df['low']) / 2
+    basic_ub = (hl2 + 3.0 * st_atr).fillna(df['close']).values
+    basic_lb = (hl2 - 3.0 * st_atr).fillna(df['close']).values
+    close_vals = df['close'].values
+    n = len(df)
+    final_ub = np.zeros(n)
+    final_lb = np.zeros(n)
+    supertrend = np.zeros(n)
+    st_dir = np.ones(n, dtype=int)
+    for i in range(n):
+    if i == 0:
+    final_ub[i] = basic_ub[i]
+    final_lb[i] = basic_lb[i]
+    supertrend[i] = basic_lb[i]
+    continue
+    final_ub[i] = basic_ub[i] if (basic_ub[i] < final_ub[i-1] or close_vals[i-1] > final_ub[i-1]) else final_ub[i-1]
+    final_lb[i] = basic_lb[i] if (basic_lb[i] > final_lb[i-1] or close_vals[i-1] < final_lb[i-1]) else final_lb[i-1]
+    if st_dir[i-1] == 1:
+    if close_vals[i] < final_lb[i]:
+    st_dir[i] = -1
+    supertrend[i] = final_ub[i]
+    else:
+    st_dir[i] = 1
+    supertrend[i] = final_lb[i]
+    else:
+    if close_vals[i] > final_ub[i]:
+    st_dir[i] = 1
+    supertrend[i] = final_lb[i]
+    else:
+    st_dir[i] = -1
+    supertrend[i] = final_ub[i]
+    df['SuperTrend'] = supertrend
+    df['ST_Dir'] = st_dir
+    # Stochastic Oscillator (14, 3, 3)
+    low_14 = df['low'].rolling(window=14).min()
+    high_14 = df['high'].rolling(window=14).max()
+    denom_stoch = (high_14 - low_14).replace(0, np.nan)
+    fast_k = (100 * ((df['close'] - low_14) / denom_stoch)).fillna(50.0)
+    df['Stoch_K'] = fast_k.rolling(window=3, min_periods=1).mean()
+    df['Stoch_D'] = df['Stoch_K'].rolling(window=3, min_periods=1).mean()
+    # Ichimoku Cloud (9, 26, 52)
+    df['Tenkan'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
+    df['Kijun'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
+    df['Span_A_Raw'] = (df['Tenkan'] + df['Kijun']) / 2
+    df['Span_B_Raw'] = (df['high'].rolling(52).max() + df['low'].rolling(52).min()) / 2
+    df['Senkou_A'] = df['Span_A_Raw'].shift(26)
+    df['Senkou_B'] = df['Span_B_Raw'].shift(26)
+    # Hộp Sideway & Đỉnh/Đáy 20 phiên
+    df['High_20'] = df['high'].rolling(window=20).max()
+    df['Low_20'] = df['low'].rolling(window=20).min()
+    df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20'].replace(0, np.nan)) * 100
+    # RSI (14) chuẩn Wilder
+    delta = df['close'].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    rsi_vals = np.where(
+    (avg_gain == 0) & (avg_loss == 0), 50.0,
+    np.where(avg_loss == 0, 100.0, 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss.replace(0, np.nan)))))
+    )
+    df['RSI'] = pd.Series(rsi_vals, index=df.index)
+    # MFI (14)
+    tp = (df['high'] + df['low'] + df['close']) / 3
+    raw_mf = tp * df['volume']
+    pos_mf = pd.Series(np.where(tp > tp.shift(1), raw_mf, 0.0), index=df.index)
+    neg_mf = pd.Series(np.where(tp < tp.shift(1), raw_mf, 0.0), index=df.index)
+    pos_sum = pos_mf.rolling(window=14).sum()
+    neg_sum = neg_mf.rolling(window=14).sum()
+    mfi_vals = np.where(
+    (pos_sum == 0) & (neg_sum == 0), 50.0,
+    np.where(neg_sum == 0, 100.0,
+    np.where(pos_sum == 0, 0.0, 100.0 - (100.0 / (1.0 + (pos_sum / neg_sum.replace(0, np.nan))))))
+    )
+    df['MFI'] = pd.Series(mfi_vals, index=df.index)
+    # MACD (12, 26, 9)
+    exp1 = df['close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    return df
 
 --- HÀM QUÉT PHÂN KỲ ÂM / DƯƠNG RSI TRONG 15 PHIÊN ---
 
 def detect_rsi_divergence(df_clean: pd.DataFrame, lookback: int = 15):
-if len(df_clean) < lookback + 5:
-return False, False
-sub = df_clean.tail(lookback)
-curr_p = float(sub['close'].iloc[-1])
-curr_rsi = float(sub['RSI'].iloc[-1])
-past = sub.iloc[:-3]
-max_past_p = float(past['close'].max())
-max_past_rsi = float(past['RSI'].max())
-min_past_p = float(past['close'].min())
-min_past_rsi = float(past['RSI'].min())
-# Phân kỳ âm: Giá vượt đỉnh cũ nhưng RSI thấp hơn đỉnh cũ đáng kể và đang ở vùng cao (>60)
-bearish_div = (curr_p >= max_past_p * 0.995) and (curr_rsi < max_past_rsi - 5.0) and (max_past_rsi > 62.0)
-# Phân kỳ dương: Giá thủng/bằng đáy cũ nhưng RSI tạo đáy sau cao hơn đáy trước từ vùng quá bán (<40)
-bullish_div = (curr_p <= min_past_p * 1.005) and (curr_rsi > min_past_rsi + 5.0) and (min_past_rsi < 38.0)
-return bearish_div, bullish_div
+    if len(df_clean) < lookback + 5:
+    return False, False
+    sub = df_clean.tail(lookback)
+    curr_p = float(sub['close'].iloc[-1])
+    curr_rsi = float(sub['RSI'].iloc[-1])
+    past = sub.iloc[:-3]
+    max_past_p = float(past['close'].max())
+    max_past_rsi = float(past['RSI'].max())
+    min_past_p = float(past['close'].min())
+    min_past_rsi = float(past['RSI'].min())
+    # Phân kỳ âm: Giá vượt đỉnh cũ nhưng RSI thấp hơn đỉnh cũ đáng kể và đang ở vùng cao (>60)
+    bearish_div = (curr_p >= max_past_p * 0.995) and (curr_rsi < max_past_rsi - 5.0) and (max_past_rsi > 62.0)
+    # Phân kỳ dương: Giá thủng/bằng đáy cũ nhưng RSI tạo đáy sau cao hơn đáy trước từ vùng quá bán (<40)
+    bullish_div = (curr_p <= min_past_p * 1.005) and (curr_rsi > min_past_rsi + 5.0) and (min_past_rsi < 38.0)
+    return bearish_div, bullish_div
 
 --- ĐÁNH GIÁ TÍN HIỆU TỔNG HỢP (TA + FA + KRX + PHÂN KỲ + OBV) ---
 
 def evaluate_stock_signals(df_clean: pd.DataFrame, ai_pct_change: float = 0.0, ai_is_reliable: bool = False, fund_info: dict = None):
-if fund_info is None:
-fund_info = {"roe": None, "pe": None, "pb": None, "de": None, "exchange": "HOSE"}
-exchange = fund_info.get("exchange", "HOSE")
-last = df_clean.iloc[-1]
-prev = df_clean.iloc[-2]
-curr_p = float(last['close'])
-prev_p = float(prev['close'])
-vol_ratio = float(last['Vol_Ratio'])
-atr_val = float(last['ATR'])
-rsi_val = float(last['RSI'])
-mfi_val = float(last['MFI'])
-ma20_val = float(last['MA20'])
-ma50_val = float(last['MA50'])
-kijun_val = float(last['Kijun'])
-bb_upper = float(last['BB_Upper'])
-high_20 = float(last['High_20'])
-low_20 = float(last['Low_20'])
-cloud_top = max(float(last['Senkou_A']), float(last['Senkou_B']))
-cloud_bot = min(float(last['Senkou_A']), float(last['Senkou_B']))
-range_20 = float(last['Range_20_Pct'])
-adx_val = float(last['ADX'])
-plus_di = float(last['Plus_DI'])
-minus_di = float(last['Minus_DI'])
-st_val = float(last['SuperTrend'])
-st_dir = int(last['ST_Dir'])
-stoch_k = float(last['Stoch_K'])
-stoch_d = float(last['Stoch_D'])
-prev_k = float(prev['Stoch_K'])
-prev_d = float(prev['Stoch_D'])
-obv_bull = float(last['OBV']) > float(last['OBV_MA20'])
-bearish_div, bullish_div = detect_rsi_divergence(df_clean)
-# 1. Tính Điểm Mua Hợp Lý, Cắt Lỗ, Chốt Lời theo Bước Giá Chuẩn KRX
-dist_ma20_pct = ((curr_p - ma20_val) / ma20_val) * 100
-is_good_entry = (-1.0 <= dist_ma20_pct <= 6.0)
-is_overextended = (dist_ma20_pct > 6.5)
-supports = [ma20_val, kijun_val]
-if st_dir == 1:
-supports.append(st_val)
-valid_supports = [s for s in supports if s < curr_p]
-support_level = max(valid_supports) if valid_supports else (curr_p - 1.5 * atr_val)
-raw_sl = max(support_level - 0.5 * atr_val, curr_p - 2.5 * atr_val)
-if raw_sl >= curr_p * 0.985:
-raw_sl = curr_p - 1.5 * atr_val
-raw_tp = max(bb_upper, high_20, curr_p + 3.0 * atr_val)
-stop_loss = round_vn_tick(raw_sl, exchange)
-take_profit = round_vn_tick(raw_tp, exchange)
-risk_per_share = max(curr_p - stop_loss, 10.0)
-reward_per_share = max(take_profit - curr_p, 0.0)
-rr_ratio = round(reward_per_share / risk_per_share, 2)
-# 2. Điều kiện khóa cứng "Chỉ mua khi SuperTrend Xanh + ADX >= 22 + Không Phân Kỳ Âm"
-is_st_green = (st_dir == 1)
-is_adx_strong = (adx_val >= 22.0) and (plus_di > minus_di)
-mandatory_buy_gate = is_st_green and is_adx_strong and (not bearish_div)
-is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and is_st_green and (ma20_val >= ma50_val * 0.98)
-is_sideway = ((range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)) or (adx_val < 18.0 and abs(dist_ma20_pct) < 3.0)
-is_bull_trap = (curr_p > prev_p * 1.02) and (vol_ratio < 75.0) and (rsi_val > 65)
-is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and is_uptrend and mandatory_buy_gate and (not is_bull_trap)
-is_stoch_timing = (stoch_k > stoch_d) and (prev_k <= prev_d or stoch_k < 35.0) and (stoch_k < 55.0)
-stoch_note = f" + Timing Stoch đẹp ({stoch_k:.0f})" if (is_stoch_timing and is_uptrend) else ""
-obv_note = " + OBV gom hàng" if obv_bull else ""
-div_note = " | ⚠️ PHÂN KỲ ÂM RSI" if bearish_div else (" | ✨ Phân kỳ dương RSI" if bullish_div else "")
-# Cảnh báo cơ bản (FA) nếu ROE âm hoặc Nợ/VCSH quá cao
-fa_warn = ""
-roe_v = fund_info.get("roe")
-de_v = fund_info.get("de")
-if roe_v is not None and roe_v < 0:
-fa_warn += f" | ⚠️ Lỗ (ROE {roe_v}%)"
-if de_v is not None and de_v > 2.5:
-fa_warn += f" | ⚠️ Nợ cao (D/E {de_v})"
-# 3. Chấm điểm 5 tiêu chí Pro
-buy_score = (
-(1 if (is_uptrend and last['MACD'] > last['Signal_Line']) else 0) +
-(1 if mandatory_buy_gate else 0) +
-(1 if (vol_ratio >= 110.0 and curr_p >= prev_p and mfi_val >= 45 and obv_bull) else 0) +
-(1 if is_good_entry else 0) +
-(1 if rr_ratio >= 1.5 else 0)
-)
-sell_score = (
-(1 if last['MACD'] < last['Signal_Line'] else 0) +
-(1 if curr_p < ma20_val else 0) +
-(1 if (curr_p < cloud_bot or st_dir == -1) else 0) +
-(1 if bearish_div else 0) +
-(2 if (rsi_val > 76 and mfi_val > 80 and not is_uptrend) else (1 if (rsi_val > 80 or mfi_val > 85) else 0))
-)
-ai_note = ""
-if ai_is_reliable:
-if ai_pct_change > 0.8 and buy_score >= 4:
-ai_note = f" | AI tin cậy ủng hộ ({ai_pct_change:+.1f}%)"
-elif ai_pct_change < -0.8:
-sell_score += 1
-ai_note = f" | AI cảnh báo chỉnh ({ai_pct_change:+.1f}%)"
-# 4. Kết luận
-krx_order_tip = " [Gợi ý KRX: Lệnh MTL]" if exchange == "HOSE" else " [Gợi ý KRX: Lệnh MTL/MAK]"
-if is_bull_trap:
-trang_thai = "🚨 CẢNH BÁO BẪY GIÁ (BULL TRAP)"
-ly_do = f"Giá tăng nhưng Vol yếu ({vol_ratio:.0f}% TB20), RSI cao ({rsi_val:.0f}) -> Tuyệt đối không mua đuổi{fa_warn}"
-elif is_vol_breakout and is_good_entry and rr_ratio >= 1.5 and sell_score <= 1:
-trang_thai = "🔥 BÙNG NỔ VOL + ĐIỂM MUA CHUẨN"
-ly_do = f"Đạt chuẩn ST Xanh + ADX {adx_val:.0f} (+DI>{minus_di:.0f}), Vol {vol_ratio:.0f}%, sát MA20 (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{obv_note}{krx_order_tip}{ai_note}{fa_warn}"
-elif bearish_div and is_uptrend:
-trang_thai = "⚠️ PHÂN KỲ ÂM (CHẶN MUA MỚI)"
-ly_do = f"Giá tạo đỉnh mới nhưng RSI suy yếu (Phân kỳ âm) -> Rủi ro đảo chiều, ưu tiên chốt lời từng phần{fa_warn}"
-elif is_overextended and is_uptrend:
-trang_thai = "⏳ QUA ĐIỂM MUA (CHỜ CHỈNH)"
-ly_do = f"Uptrend khỏe (ADX {adx_val:.0f}, ST Xanh) nhưng giá chạy xa MA20 (+{dist_ma20_pct:.1f}%), R:R thấp ({rr_ratio}:1) -> Chờ kéo ngược{fa_warn}"
-elif is_sideway:
-trang_thai = "⏸️ SIDEWAY (ĐI NGANG)"
-ly_do = f"Xu hướng yếu (ADX {adx_val:.0f}), biên độ 20P {range_20:.1f}% ({low_20:,.0f}–{high_20:,.0f}đ){obv_note}{div_note}{fa_warn}"
-elif sell_score >= 3:
-trang_thai = "🔴 CẢNH BÁO BÁN / CHỐT LỜI"
-ly_do = f"Gãy hỗ trợ MA20/SuperTrend Đỏ hoặc quá mua/phân kỳ (RSI {rsi_val:.0f} / MFI {mfi_val:.0f}){div_note}{ai_note}{fa_warn}"
-elif mandatory_buy_gate and buy_score >= 4 and rr_ratio >= 1.5 and sell_score <= 1:
-trang_thai = "🟢 TÍN HIỆU MUA ĐẸP (R:R TỐT)"
-ly_do = f"Khóa chuẩn ST Xanh + ADX {adx_val:.0f}, dòng tiền xác nhận, sát nền (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{obv_note}{ai_note}{fa_warn}"
-elif buy_score >= 3 and sell_score <= 2:
-thieu_dk = "Phân kỳ âm RSI" if bearish_div else ("ADX < 22 hoặc -DI > +DI" if not is_adx_strong else ("SuperTrend Đỏ" if not is_st_green else "chưa đạt R:R/Dòng tiền"))
-trang_thai = "🟡 NẮM GIỮ / THEO DÕI"
-ly_do = f"Giữ xu hướng nhưng chưa đủ điều kiện mở mua mới ({thieu_dk}), ADX {adx_val:.0f}, R:R {rr_ratio}:1{stoch_note}{obv_note}{ai_note}{fa_warn}"
-else:
-trang_thai = "⚪ ĐỨNG NGOÀI QUAN SÁT"
-ly_do = f"Không đạt điều kiện khóa (ST {'Xanh' if is_st_green else 'Đỏ'}, ADX {adx_val:.0f}), giá dưới MA20/Mây{div_note}{fa_warn}"
-return {
-"trang_thai": trang_thai,
-"ly_do": ly_do,
-"buy_score": buy_score,
-"sell_score": sell_score,
-"cat_lo": stop_loss,
-"chot_loi": take_profit,
-"rr_ratio": rr_ratio,
-"dist_ma20_pct": dist_ma20_pct,
-"cloud_top": cloud_top,
-"cloud_bot": cloud_bot,
-"adx": adx_val,
-"plus_di": plus_di,
-"minus_di": minus_di,
-"st_val": st_val,
-"st_dir": st_dir,
-"stoch_k": stoch_k,
-"stoch_d": stoch_d,
-"obv_bull": obv_bull,
-"bearish_div": bearish_div,
-"exchange": exchange
-}
+    if fund_info is None:
+    fund_info = {"roe": None, "pe": None, "pb": None, "de": None, "exchange": "HOSE"}
+    exchange = fund_info.get("exchange", "HOSE")
+    last = df_clean.iloc[-1]
+    prev = df_clean.iloc[-2]
+    curr_p = float(last['close'])
+    prev_p = float(prev['close'])
+    vol_ratio = float(last['Vol_Ratio'])
+    atr_val = float(last['ATR'])
+    rsi_val = float(last['RSI'])
+    mfi_val = float(last['MFI'])
+    ma20_val = float(last['MA20'])
+    ma50_val = float(last['MA50'])
+    kijun_val = float(last['Kijun'])
+    bb_upper = float(last['BB_Upper'])
+    high_20 = float(last['High_20'])
+    low_20 = float(last['Low_20'])
+    cloud_top = max(float(last['Senkou_A']), float(last['Senkou_B']))
+    cloud_bot = min(float(last['Senkou_A']), float(last['Senkou_B']))
+    range_20 = float(last['Range_20_Pct'])
+    adx_val = float(last['ADX'])
+    plus_di = float(last['Plus_DI'])
+    minus_di = float(last['Minus_DI'])
+    st_val = float(last['SuperTrend'])
+    st_dir = int(last['ST_Dir'])
+    stoch_k = float(last['Stoch_K'])
+    stoch_d = float(last['Stoch_D'])
+    prev_k = float(prev['Stoch_K'])
+    prev_d = float(prev['Stoch_D'])
+    obv_bull = float(last['OBV']) > float(last['OBV_MA20'])
+    bearish_div, bullish_div = detect_rsi_divergence(df_clean)
+    # 1. Tính Điểm Mua Hợp Lý, Cắt Lỗ, Chốt Lời theo Bước Giá Chuẩn KRX
+    dist_ma20_pct = ((curr_p - ma20_val) / ma20_val) * 100
+    is_good_entry = (-1.0 <= dist_ma20_pct <= 6.0)
+    is_overextended = (dist_ma20_pct > 6.5)
+    supports = [ma20_val, kijun_val]
+    if st_dir == 1:
+    supports.append(st_val)
+    valid_supports = [s for s in supports if s < curr_p]
+    support_level = max(valid_supports) if valid_supports else (curr_p - 1.5 * atr_val)
+    raw_sl = max(support_level - 0.5 * atr_val, curr_p - 2.5 * atr_val)
+    if raw_sl >= curr_p * 0.985:
+    raw_sl = curr_p - 1.5 * atr_val
+    raw_tp = max(bb_upper, high_20, curr_p + 3.0 * atr_val)
+    stop_loss = round_vn_tick(raw_sl, exchange)
+    take_profit = round_vn_tick(raw_tp, exchange)
+    risk_per_share = max(curr_p - stop_loss, 10.0)
+    reward_per_share = max(take_profit - curr_p, 0.0)
+    rr_ratio = round(reward_per_share / risk_per_share, 2)
+    # 2. Điều kiện khóa cứng "Chỉ mua khi SuperTrend Xanh + ADX >= 22 + Không Phân Kỳ Âm"
+    is_st_green = (st_dir == 1)
+    is_adx_strong = (adx_val >= 22.0) and (plus_di > minus_di)
+    mandatory_buy_gate = is_st_green and is_adx_strong and (not bearish_div)
+    is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and is_st_green and (ma20_val >= ma50_val * 0.98)
+    is_sideway = ((range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)) or (adx_val < 18.0 and abs(dist_ma20_pct) < 3.0)
+    is_bull_trap = (curr_p > prev_p * 1.02) and (vol_ratio < 75.0) and (rsi_val > 65)
+    is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and is_uptrend and mandatory_buy_gate and (not is_bull_trap)
+    is_stoch_timing = (stoch_k > stoch_d) and (prev_k <= prev_d or stoch_k < 35.0) and (stoch_k < 55.0)
+    stoch_note = f" + Timing Stoch đẹp ({stoch_k:.0f})" if (is_stoch_timing and is_uptrend) else ""
+    obv_note = " + OBV gom hàng" if obv_bull else ""
+    div_note = " | ⚠️ PHÂN KỲ ÂM RSI" if bearish_div else (" | ✨ Phân kỳ dương RSI" if bullish_div else "")
+    # Cảnh báo cơ bản (FA) nếu ROE âm hoặc Nợ/VCSH quá cao
+    fa_warn = ""
+    roe_v = fund_info.get("roe")
+    de_v = fund_info.get("de")
+    if roe_v is not None and roe_v < 0:
+    fa_warn += f" | ⚠️ Lỗ (ROE {roe_v}%)"
+    if de_v is not None and de_v > 2.5:
+    fa_warn += f" | ⚠️ Nợ cao (D/E {de_v})"
+    # 3. Chấm điểm 5 tiêu chí Pro
+    buy_score = (
+    (1 if (is_uptrend and last['MACD'] > last['Signal_Line']) else 0) +
+    (1 if mandatory_buy_gate else 0) +
+    (1 if (vol_ratio >= 110.0 and curr_p >= prev_p and mfi_val >= 45 and obv_bull) else 0) +
+    (1 if is_good_entry else 0) +
+    (1 if rr_ratio >= 1.5 else 0)
+    )
+    sell_score = (
+    (1 if last['MACD'] < last['Signal_Line'] else 0) +
+    (1 if curr_p < ma20_val else 0) +
+    (1 if (curr_p < cloud_bot or st_dir == -1) else 0) +
+    (1 if bearish_div else 0) +
+    (2 if (rsi_val > 76 and mfi_val > 80 and not is_uptrend) else (1 if (rsi_val > 80 or mfi_val > 85) else 0))
+    )
+    ai_note = ""
+    if ai_is_reliable:
+    if ai_pct_change > 0.8 and buy_score >= 4:
+    ai_note = f" | AI tin cậy ủng hộ ({ai_pct_change:+.1f}%)"
+    elif ai_pct_change < -0.8:
+    sell_score += 1
+    ai_note = f" | AI cảnh báo chỉnh ({ai_pct_change:+.1f}%)"
+    # 4. Kết luận
+    krx_order_tip = " [Gợi ý KRX: Lệnh MTL]" if exchange == "HOSE" else " [Gợi ý KRX: Lệnh MTL/MAK]"
+    if is_bull_trap:
+    trang_thai = "🚨 CẢNH BÁO BẪY GIÁ (BULL TRAP)"
+    ly_do = f"Giá tăng nhưng Vol yếu ({vol_ratio:.0f}% TB20), RSI cao ({rsi_val:.0f}) -> Tuyệt đối không mua đuổi{fa_warn}"
+    elif is_vol_breakout and is_good_entry and rr_ratio >= 1.5 and sell_score <= 1:
+    trang_thai = "🔥 BÙNG NỔ VOL + ĐIỂM MUA CHUẨN"
+    ly_do = f"Đạt chuẩn ST Xanh + ADX {adx_val:.0f} (+DI>{minus_di:.0f}), Vol {vol_ratio:.0f}%, sát MA20 (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{obv_note}{krx_order_tip}{ai_note}{fa_warn}"
+    elif bearish_div and is_uptrend:
+    trang_thai = "⚠️ PHÂN KỲ ÂM (CHẶN MUA MỚI)"
+    ly_do = f"Giá tạo đỉnh mới nhưng RSI suy yếu (Phân kỳ âm) -> Rủi ro đảo chiều, ưu tiên chốt lời từng phần{fa_warn}"
+    elif is_overextended and is_uptrend:
+    trang_thai = "⏳ QUA ĐIỂM MUA (CHỜ CHỈNH)"
+    ly_do = f"Uptrend khỏe (ADX {adx_val:.0f}, ST Xanh) nhưng giá chạy xa MA20 (+{dist_ma20_pct:.1f}%), R:R thấp ({rr_ratio}:1) -> Chờ kéo ngược{fa_warn}"
+    elif is_sideway:
+    trang_thai = "⏸️ SIDEWAY (ĐI NGANG)"
+    ly_do = f"Xu hướng yếu (ADX {adx_val:.0f}), biên độ 20P {range_20:.1f}% ({low_20:,.0f}–{high_20:,.0f}đ){obv_note}{div_note}{fa_warn}"
+    elif sell_score >= 3:
+    trang_thai = "🔴 CẢNH BÁO BÁN / CHỐT LỜI"
+    ly_do = f"Gãy hỗ trợ MA20/SuperTrend Đỏ hoặc quá mua/phân kỳ (RSI {rsi_val:.0f} / MFI {mfi_val:.0f}){div_note}{ai_note}{fa_warn}"
+    elif mandatory_buy_gate and buy_score >= 4 and rr_ratio >= 1.5 and sell_score <= 1:
+    trang_thai = "🟢 TÍN HIỆU MUA ĐẸP (R:R TỐT)"
+    ly_do = f"Khóa chuẩn ST Xanh + ADX {adx_val:.0f}, dòng tiền xác nhận, sát nền (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{obv_note}{ai_note}{fa_warn}"
+    elif buy_score >= 3 and sell_score <= 2:
+    thieu_dk = "Phân kỳ âm RSI" if bearish_div else ("ADX < 22 hoặc -DI > +DI" if not is_adx_strong else ("SuperTrend Đỏ" if not is_st_green else "chưa đạt R:R/Dòng tiền"))
+    trang_thai = "🟡 NẮM GIỮ / THEO DÕI"
+    ly_do = f"Giữ xu hướng nhưng chưa đủ điều kiện mở mua mới ({thieu_dk}), ADX {adx_val:.0f}, R:R {rr_ratio}:1{stoch_note}{obv_note}{ai_note}{fa_warn}"
+    else:
+    trang_thai = "⚪ ĐỨNG NGOÀI QUAN SÁT"
+    ly_do = f"Không đạt điều kiện khóa (ST {'Xanh' if is_st_green else 'Đỏ'}, ADX {adx_val:.0f}), giá dưới MA20/Mây{div_note}{fa_warn}"
+    return {
+    "trang_thai": trang_thai,
+    "ly_do": ly_do,
+    "buy_score": buy_score,
+    "sell_score": sell_score,
+    "cat_lo": stop_loss,
+    "chot_loi": take_profit,
+    "rr_ratio": rr_ratio,
+    "dist_ma20_pct": dist_ma20_pct,
+    "cloud_top": cloud_top,
+    "cloud_bot": cloud_bot,
+    "adx": adx_val,
+    "plus_di": plus_di,
+    "minus_di": minus_di,
+    "st_val": st_val,
+    "st_dir": st_dir,
+    "stoch_k": stoch_k,
+    "stoch_d": stoch_d,
+    "obv_bull": obv_bull,
+    "bearish_div": bearish_div,
+    "exchange": exchange
+    }
 
 --- BACKTEST CHUẨN LUẬT THANH TOÁN T+2,5 ---
 

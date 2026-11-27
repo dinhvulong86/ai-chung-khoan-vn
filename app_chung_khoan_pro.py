@@ -205,9 +205,9 @@ def get_dynamic_top_tickers(fallback_list):
         tickers = [x['ticker'] for x in items if x.get('ticker') and len(x['ticker']) == 3]
         if len(tickers) >= 30:
             return tickers
-except Exception:
-pass
-return list(fallback_list)
+    except Exception:
+        pass
+    return list(fallback_list)
 
 --- TÍNH CHỈ BÁO KỸ THUẬT + OBV + NHẬN DIỆN PHÂN KỲ RSI ---
 

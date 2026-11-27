@@ -485,15 +485,14 @@ ____days_held = 0
 ____trades = []
 ____hold_days_list = []
 ____equity_curve = [1.0]
-
 ____for i in range(1, len(df_bt)):
 ________row = df_bt.iloc[i]
 ________prev = df_bt.iloc[i-1]
 ________curr_eq = equity_curve[-1]
-
 ________if not in_pos:
 ____________dist_ma20 = ((float(prev['close']) - float(prev['MA20'])) / float(prev['MA20'])) * 100
-____________cond_trend = (prev['MACD'] > prev['Signal_Line']) and (prev['ST_Dir'] == 1) and (prev['ADX'] >= 22.0) and (prev['Plus_DI'] > prev['Minus_DI'])
+____________cloud_top_prev = max(float(prev['Senkou_A']), float(prev['Senkou_B']))
+____________cond_trend = (prev['MACD'] > prev['Signal_Line']) and (prev['ST_Dir'] == 1) and (prev['ADX'] >= 22.0) and (prev['Plus_DI'] > prev['Minus_DI']) and (float(prev['close']) > float(prev['MA50'])) and (float(prev['close']) > cloud_top_prev)
 ____________if cond_trend and (0 <= dist_ma20 <= 6.0) and (prev['Vol_Ratio'] >= 100):
 ________________in_pos = True
 ________________days_held = 0
@@ -705,16 +704,13 @@ ________curr_p = float(last['close'])
 ________# 1. Chạy Backtest 150 phiên & AI dự đoán phiên tới
 ________bt = run_strategy_backtest(df_ma)
 ________ai_pct, ai_next_label = quick_ai_next_session(df_ma)
-
 ________# Đánh giá độ hợp sóng của mã (Lọc nhiễu sóng)
-________is_backtest_good = (bt['profit_factor'] > 1.5) and (bt['net_profit'] > 0)
+________is_backtest_good = (bt['net_profit'] >= -2.0) and (bt['win_rate'] >= 33.0 or bt['total_trades'] == 0)
 ________bt_badge = f"⭐ Chuẩn sóng (PF {bt['profit_factor']:.1f} | {bt['net_profit']:+.1f}%)" if is_backtest_good else f"⚠️ Nhiễu sóng (PF {bt['profit_factor']:.1f} | {bt['net_profit']:+.1f}%)"
-
 ________sig = evaluate_stock_signals(df_ma, ai_pct_change=ai_pct, ai_is_reliable=True, fund_info=fund_info)
 ________st_txt = "🟢 Xanh" if sig["st_dir"] == 1 else "🔴 Đỏ"
 ________roe_txt = f"{fund_info['roe']}%" if fund_info['roe'] is not None else "-"
 ________pe_txt = f"{fund_info['pe']}" if fund_info['pe'] is not None else "-"
-
 ________return {
 ____________"Mã CP": ma,
 ____________"Sàn": fund_info["exchange"],

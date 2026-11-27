@@ -662,21 +662,61 @@ ____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_te
 ____fig.update_xaxes(type='category', tickangle=-45, nticks=42)
 ____fig.update_layout(xaxis_rangeslider_visible=False, height=560, hovermode='x unified')
 ____st.plotly_chart(fig, use_container_width=True)
+def quick_ai_next_session(df_clean: pd.DataFrame) -> tuple:
+____"""Dự đoán nhanh tỷ lệ % tăng/giảm phiên tiếp theo bằng MLPRegressor gọn nhẹ cho Tab 2"""
+____try:
+________features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD', 'ADX', 'OBV')
+________raw_values = df_clean.loc[:, features].tail(120).values
+________if len(raw_values) < 40:
+____________return 0.0, "➖ Đi ngang"
+________scaler = MinMaxScaler(feature_range=(0, 1))
+________scaled = scaler.fit_transform(raw_values)
+________look_back = 15
+________X = np.array([scaled[i-look_back:i].flatten() for i in range(look_back, len(scaled))])
+________y = np.array([scaled[i, 0] for i in range(look_back, len(scaled))])
+________model = MLPRegressor(hidden_layer_sizes=(32, 16), max_iter=60, random_state=42)
+________model.fit(X, y)
+________last_window = scaled[-look_back:].flatten().reshape(1, -1)
+________pred_scaled = model.predict(last_window).item()
+________dummy = np.zeros((1, len(features)))
+________dummy.put(0, pred_scaled)
+________pred_price = scaler.inverse_transform(dummy).item(0)
+________curr_price = float(df_clean['close'].iloc[-1])
+________pct = ((pred_price - curr_price) / curr_price) * 100
+________if pct >= 0.5:
+____________return pct, f"📈 Tăng ({pct:+.1f}%)"
+________elif pct <= -0.5:
+____________return pct, f"📉 Giảm ({pct:+.1f}%)"
+________else:
+____________return pct, f"➖ Đi ngang ({pct:+.1f}%)"
+____except Exception:
+________return 0.0, "➖ N/A"
+
 def scan_single_stock(ma: str):
 ____try:
 ________df_ma = get_stock_data(ma, days=320)
 ________if len(df_ma) < 90:
 ____________return None
 ________df_ma = add_technical_indicators(df_ma).dropna()
-________if len(df_ma) < 10:
+________if len(df_ma) < 45:
 ____________return None
 ________fund_info = get_fundamental_ratios(ma)
 ________last = df_ma.iloc[-1]
 ________curr_p = float(last['close'])
-________sig = evaluate_stock_signals(df_ma, ai_pct_change=0.0, ai_is_reliable=False, fund_info=fund_info)
+
+________# 1. Chạy Backtest 150 phiên & AI dự đoán phiên tới
+________bt = run_strategy_backtest(df_ma)
+________ai_pct, ai_next_label = quick_ai_next_session(df_ma)
+
+________# Đánh giá độ hợp sóng của mã (Lọc nhiễu sóng)
+________is_backtest_good = (bt['profit_factor'] > 1.5) and (bt['net_profit'] > 0)
+________bt_badge = f"⭐ Chuẩn sóng (PF {bt['profit_factor']:.1f} | {bt['net_profit']:+.1f}%)" if is_backtest_good else f"⚠️ Nhiễu sóng (PF {bt['profit_factor']:.1f} | {bt['net_profit']:+.1f}%)"
+
+________sig = evaluate_stock_signals(df_ma, ai_pct_change=ai_pct, ai_is_reliable=True, fund_info=fund_info)
 ________st_txt = "🟢 Xanh" if sig["st_dir"] == 1 else "🔴 Đỏ"
 ________roe_txt = f"{fund_info['roe']}%" if fund_info['roe'] is not None else "-"
 ________pe_txt = f"{fund_info['pe']}" if fund_info['pe'] is not None else "-"
+
 ________return {
 ____________"Mã CP": ma,
 ____________"Sàn": fund_info["exchange"],
@@ -686,7 +726,9 @@ ____________"Chốt lời (đ)": round(sig["chot_loi"], 0),
 ____________"Tỷ lệ R:R": f"{sig['rr_ratio']} : 1",
 ____________"SuperTrend": st_txt,
 ____________"ADX (+DI/-DI)": f"{sig['adx']:.0f} ({sig['plus_di']:.0f}/{sig['minus_di']:.0f})",
-____________"ROE / P/E": f"{roe_txt} / {pe_txt}",
+____________"Dự đoán Phiên tới": ai_next_label,
+____________"Lịch sử Sóng (150P)": bt_badge,
+____________"Is_BT_Good": is_backtest_good,
 ____________"Cách nền MA20": f"{sig['dist_ma20_pct']:+.1f}%",
 ____________"Tỷ lệ Vol (%)": f"{float(last['Vol_Ratio']):.0f}%",
 ____________"Điểm Số": int(sig['buy_score']),
@@ -749,7 +791,7 @@ ____if run_btn and symbol:
 ________with st.spinner(f"Đang phân tích chuyên sâu (TA + FA + CAPM + KRX) & chạy Backtest T+2,5 cho mã {symbol}..."):
 ____________analyze_one_stock(symbol, days_history, epochs, nav_von, risk_pct)
 with tab2:
-____st.subheader("Quét Xu Hướng Tăng (ST Xanh + ADX ≥ 22), Dòng Tiền (OBV/MFI), Phân Kỳ & Cơ Bản (ROE/PE)")
+____st.subheader("Quét Xu Hướng Tăng (ST Xanh + ADX ≥ 22), Dự Đoán Phiên Tới & Lọc Chất Lượng Sóng (PF > 1.5)")
 ____c_filter1, c_filter2, c_filter3 = st.columns((2, 1.5, 1.5))
 ____nhom_chon = c_filter1.selectbox("Chọn nhóm cổ phiếu / chế độ quét:", list(DANH_MUC_NHOM.keys()))
 ____ma_rieng = c_filter2.text_input("Thêm mã riêng (cách nhau dấu phẩy):", placeholder="VD: BSR, KBC, VGC").upper().strip()
@@ -759,6 +801,7 @@ ________"🟢 Chỉ hiện Tín hiệu MUA ĐẸP & Bùng nổ Vol (ST Xanh + AD
 ________"🔴 Chỉ hiện Cảnh báo BÁN / Chốt lời / Phân kỳ âm / Bẫy giá",
 ________"⏳ Chỉ hiện Qua điểm mua (Chờ chỉnh) & Sideway"
 ____))
+____only_good_bt = st.checkbox("🛡️ Chỉ giữ mã có Lịch sử Sóng tốt (Profit Factor > 1.5 & Lợi nhuận ròng 150P dương — Loại bỏ mã nhiễu sóng)", value=False)
 ____scan_btn = st.button("⚡ Bắt Đầu Quét Siêu Tốc Ngay", type="primary")
 ____if scan_btn:
 ________nhom_val = DANH_MUC_NHOM[nhom_chon]
@@ -778,19 +821,22 @@ ____________future_to_ma = {executor.submit(scan_single_stock, ma): ma for ma in
 ____________for future in as_completed(future_to_ma):
 ________________da_xong += 1
 ________________progress_bar.progress(da_xong / tong_so)
-________________status_text.text(f"⚡ Đang quét song song: {da_xong}/{tong_so} mã cổ phiếu...")
+________________status_text.text(f"⚡ Đang quét song song & chạy AI dự đoán: {da_xong}/{tong_so} mã cổ phiếu...")
 ________________res = future.result()
 ________________if res is not None:
 ____________________ket_qua_loc.append(res)
 ________status_text.text(f"✅ Hoàn tất quét {tong_so} mã cổ phiếu!")
 ________if ket_qua_loc:
-____________df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Điểm Số", "Khuyến nghị"], ascending=[False, True]).drop(columns=["Điểm Số"])
+____________df_res = pd.DataFrame(ket_qua_loc).sort_values(by=["Is_BT_Good", "Điểm Số", "Khuyến nghị"], ascending=[False, False, True])
+____________if only_good_bt:
+________________df_res = df_res[df_res["Is_BT_Good"] == True]
 ____________if "Chỉ hiện Tín hiệu MUA" in che_do_loc:
 ________________df_res = df_res[df_res["Khuyến nghị"].str.contains("BÙNG NỔ|MUA ĐẸP")]
 ____________elif "Chỉ hiện Cảnh báo BÁN" in che_do_loc:
 ________________df_res = df_res[df_res["Khuyến nghị"].str.contains("CẢNH BÁO BÁN|BẪY GIÁ|PHÂN KỲ ÂM")]
 ____________elif "Chỉ hiện Qua điểm mua" in che_do_loc:
 ________________df_res = df_res[df_res["Khuyến nghị"].str.contains("QUA ĐIỂM MUA|SIDEWAY|ĐỨNG NGOÀI|NẮM GIỮ")]
+____________df_res = df_res.drop(columns=["Điểm Số", "Is_BT_Good"])
 ____________st.write(f"Hiển thị {len(df_res)} cổ phiếu theo bộ lọc đã chọn:")
 ____________st.dataframe(df_res, use_container_width=True, hide_index=True)
 ________else:

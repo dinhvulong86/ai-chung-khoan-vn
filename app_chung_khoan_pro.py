@@ -31,20 +31,20 @@ ____start_ts = int((now_vn - timedelta(days=days)).timestamp())
 ____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
 
-____# 1. Nguồn 1: Vietcap (VCI)
+____# 1. Nguồn 1: Vietcap (VCI) - Đầy đủ 100% HOSE, HNX, UPCOM
 ____try:
 ________url_vci = "https://vietcap.com.vn"
 ________payload_vci = {
 ____________"timeFrame": "ONE_DAY",
 ____________"symbols": [sym],
 ____________"to": end_ts,
-____________"countBack": min(int(days * 0.72), 1000)
+____________"countBack": min(int(days * 0.75), 1000)
 ________}
 ________headers_vci = {
 ____________'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
 ____________'Content-Type': 'application/json',
 ____________'Origin': 'https://vietcap.com.vn',
-____________'Referer': 'https://vietcap.com.vn'
+____________'Referer': 'https://vietcap.com.vn/'
 ________}
 ________res_vci = requests.post(url_vci, json=payload_vci, headers=headers_vci, timeout=8).json()
 ________if isinstance(res_vci, list) and len(res_vci) > 0:
@@ -65,7 +65,7 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
 
-____# 2. Nguồn 2: DNSE / EntradeX
+____# 2. Nguồn 2: DNSE / EntradeX - Hạ tầng mở quốc tế
 ____if df.empty:
 ________try:
 ____________url_dnse = "https://entrade.com.vn"
@@ -87,10 +87,10 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 3. Nguồn 3: Simplize
+____# 3. Nguồn 3: Simplize API
 ____if df.empty:
 ________try:
-____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.72), 1000)}"
+____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.75), 1000)}"
 ____________res_sim = requests.get(url_sim, headers={'User-Agent': 'Mozilla/5.0'}, timeout=8).json()
 ____________items = res_sim.get('data', [])
 ____________if isinstance(items, list) and len(items) >= 30:
@@ -110,7 +110,7 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 4. Nguồn 4: Yahoo Finance
+____# 4. Nguồn 4: Yahoo Finance (.VN - Dự phòng sàn HOSE)
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -174,20 +174,20 @@ ____di_sum = (df['Plus_DI'] + df['Minus_DI']).replace(0, np.nan)
 ____dx = 100 * ((df['Plus_DI'] - df['Minus_DI']).abs() / di_sum)
 ____df['ADX'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
 
-____# SuperTrend (10, 3.0)
-____st_atr = df['TR'].ewm(alpha=1/10, min_periods=10, adjust=False).mean()
+____# SuperTrend (10, 3.0) - Khử NaN an toàn ở các phiên đầu
+____st_atr = df['TR'].ewm(alpha=1/10, min_periods=1, adjust=False).mean()
 ____hl2 = (df['high'] + df['low']) / 2
-____basic_ub = (hl2 + 3.0 * st_atr).values
-____basic_lb = (hl2 - 3.0 * st_atr).values
+____basic_ub = (hl2 + 3.0 * st_atr).fillna(df['close']).values
+____basic_lb = (hl2 - 3.0 * st_atr).fillna(df['close']).values
 ____close_vals = df['close'].values
 ____n = len(df)
 ____final_ub = np.zeros(n)
 ____final_lb = np.zeros(n)
 ____supertrend = np.zeros(n)
-____st_dir = np.ones(n, dtype=int)  # 1: Xanh (Uptrend), -1: Đỏ (Downtrend)
+____st_dir = np.ones(n, dtype=int)
 
 ____for i in range(n):
-________if i == 0 or np.isnan(basic_ub[i]):
+________if i == 0:
 ____________final_ub[i] = basic_ub[i]
 ____________final_lb[i] = basic_lb[i]
 ____________supertrend[i] = basic_lb[i]
@@ -210,13 +210,13 @@ ________________st_dir[i] = -1
 ________________supertrend[i] = final_ub[i]
 ____df['SuperTrend'] = supertrend
 ____df['ST_Dir'] = st_dir
-____# Stochastic Oscillator (14, 3, 3) - Timing điểm mua pullback
+____# Stochastic Oscillator (14, 3, 3)
 ____low_14 = df['low'].rolling(window=14).min()
 ____high_14 = df['high'].rolling(window=14).max()
 ____denom_stoch = (high_14 - low_14).replace(0, np.nan)
-____fast_k = 100 * ((df['close'] - low_14) / denom_stoch)
-____df['Stoch_K'] = fast_k.rolling(window=3).mean()
-____df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
+____fast_k = (100 * ((df['close'] - low_14) / denom_stoch)).fillna(50.0)
+____df['Stoch_K'] = fast_k.rolling(window=3, min_periods=1).mean()
+____df['Stoch_D'] = df['Stoch_K'].rolling(window=3, min_periods=1).mean()
 ____# Ichimoku Cloud (9, 26, 52)
 ____df['Tenkan'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
 ____df['Kijun'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
@@ -276,7 +276,6 @@ ____low_20 = float(last['Low_20'])
 ____cloud_top = max(float(last['Senkou_A']), float(last['Senkou_B']))
 ____cloud_bot = min(float(last['Senkou_A']), float(last['Senkou_B']))
 ____range_20 = float(last['Range_20_Pct'])
-____# Chỉ số ADX, +DI/-DI, SuperTrend, Stochastic
 ____adx_val = float(last['ADX'])
 ____plus_di = float(last['Plus_DI'])
 ____minus_di = float(last['Minus_DI'])
@@ -310,10 +309,9 @@ ____is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and is_st_green an
 ____is_sideway = ((range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)) or (adx_val < 18.0 and abs(dist_ma20_pct) < 3.0)
 ____is_bull_trap = (curr_p > prev_p * 1.02) and (vol_ratio < 75.0) and (rsi_val > 65)
 ____is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and is_uptrend and mandatory_buy_gate and (not is_bull_trap)
-____# Tín hiệu Timing từ Stochastic (%K cắt lên %D từ vùng thấp < 35 trong xu hướng tăng)
 ____is_stoch_timing = (stoch_k > stoch_d) and (prev_k <= prev_d or stoch_k < 35.0) and (stoch_k < 55.0)
 ____stoch_note = f" + Timing Stoch đẹp ({stoch_k:.0f})" if (is_stoch_timing and is_uptrend) else ""
-____# 3. Chấm điểm 5 tiêu chí Pro (Tăng trọng số ADX + SuperTrend lên 2/5 điểm)
+____# 3. Chấm điểm 5 tiêu chí Pro
 ____buy_score = (
 ________(1 if (is_uptrend and last['MACD'] > last['Signal_Line']) else 0) +
 ________(1 if mandatory_buy_gate else 0) +
@@ -334,7 +332,7 @@ ____________ai_note = f" | AI tin cậy ủng hộ ({ai_pct_change:+.1f}%)"
 ________elif ai_pct_change < -0.8:
 ____________sell_score += 1
 ____________ai_note = f" | AI cảnh báo chỉnh ({ai_pct_change:+.1f}%)"
-____# 4. Kết luận áp dụng khóa cứng SuperTrend Xanh + ADX >= 22
+____# 4. Kết luận
 ____if is_bull_trap:
 ________trang_thai = "🚨 CẢNH BÁO BẪY GIÁ (BULL TRAP)"
 ________ly_do = f"Giá tăng nhưng Vol yếu ({vol_ratio:.0f}% TB20), RSI cao ({rsi_val:.0f}) -> Tuyệt đối không mua đuổi"
@@ -380,7 +378,6 @@ ________"stoch_k": stoch_k,
 ________"stoch_d": stoch_d
 ____}
 def run_strategy_backtest(df_clean: pd.DataFrame):
-____# Kiểm thử định lượng trên 150 phiên: Áp dụng khóa cứng SuperTrend Xanh + ADX >= 22 + +DI > -DI
 ____df_bt = df_clean.tail(150).copy().reset_index(drop=True)
 ____in_pos = False
 ____entry_p = 0.0
@@ -428,13 +425,13 @@ ________profit_factor = 0.0
 ____return {"total_trades": len(trades), "win_rate": win_rate, "net_profit": net_profit, "profit_factor": profit_factor, "max_dd": max_dd}
 def analyze_one_stock(symbol: str, days_history: int, epochs: int):
 ____df = get_stock_data(symbol, days=days_history)
-____if df.empty or len(df) < 100:
-________st.error(f"Không đủ dữ liệu lịch sử cho mã {symbol}. Vui lòng kiểm tra lại mã cổ phiếu!")
+____if df.empty or len(df) < 90:
+________st.error(f"Không đủ dữ liệu lịch sử cho mã {symbol} (tải được {len(df)} phiên). Vui lòng kiểm tra lại mã cổ phiếu hoặc mạng!")
 ________return
 ____df = add_technical_indicators(df)
 ____df_clean = df.dropna().copy()
-____if len(df_clean) < 60:
-________st.error(f"Dữ liệu sau khi tính chỉ báo quá ít cho mã {symbol}.")
+____if len(df_clean) < 45:
+________st.error(f"Dữ liệu sau khi tính chỉ báo quá ít cho mã {symbol} (còn {len(df_clean)} phiên).")
 ________return
 ____features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD', 'ADX')
 ____raw_values = df_clean.loc[:, features].values
@@ -442,7 +439,7 @@ ____split_idx = int(len(raw_values) * 0.8)
 ____scaler_eval = MinMaxScaler(feature_range=(0, 1))
 ____scaler_eval.fit(raw_values[:split_idx])
 ____scaled_eval = scaler_eval.transform(raw_values)
-____look_back = 30
+____look_back = min(30, max(10, len(df_clean) // 4))
 ____X_all, y_all = [], []
 ____for i in range(look_back, len(scaled_eval)):
 ________X_all.append(scaled_eval[i-look_back:i].flatten())
@@ -476,7 +473,6 @@ ____current_price = float(df_clean['close'].iloc[-1])
 ____pct_change = ((predicted_price - current_price) / current_price) * 100
 ____ai_is_reliable = (mape_err < 3.0)
 ____vol_ratio = float(df_clean['Vol_Ratio'].iloc[-1])
-____latest_rsi = float(df_clean['RSI'].iloc[-1])
 ____latest_ma20 = float(df_clean['MA20'].iloc[-1])
 ____sig = evaluate_stock_signals(df_clean, ai_pct_change=pct_change, ai_is_reliable=ai_is_reliable)
 ____bt = run_strategy_backtest(df_clean)
@@ -485,7 +481,6 @@ ____gia_chot_loi = sig["chot_loi"]
 ____pct_cat_lo = ((gia_cat_lo - current_price) / current_price) * 100
 ____pct_chot_loi = ((gia_chot_loi - current_price) / current_price) * 100
 ____st.divider()
-____# Hàng 1: 6 Metric chi tiết (Tách rõ ADX, +DI/-DI, SuperTrend, Stochastic, R:R)
 ____m1, m2, m3, m4, m5, m6 = st.columns(6)
 ____m1.metric("Giá hiện tại", f"{current_price:,.0f} đ", f"Vol: {vol_ratio:.0f}% TB20")
 ____st_status_txt = "🟢 XANH (Tăng)" if sig["st_dir"] == 1 else "🔴 ĐỎ (Giảm)"
@@ -542,11 +537,12 @@ ____fig.update_layout(xaxis_rangeslider_visible=False, height=560, hovermode='x 
 ____st.plotly_chart(fig, use_container_width=True)
 def scan_single_stock(ma: str):
 ____try:
-________df_ma = get_stock_data(ma, days=180)
-________if len(df_ma) < 80:
+________# Tăng days=320 để đảm bảo sau khi trừ 77 phiên đầu của Ichimoku vẫn còn >130 phiên sạch
+________df_ma = get_stock_data(ma, days=320)
+________if len(df_ma) < 90:
 ____________return None
 ________df_ma = add_technical_indicators(df_ma).dropna()
-________if len(df_ma) < 5:
+________if len(df_ma) < 10:
 ____________return None
 ________last = df_ma.iloc[-1]
 ________curr_p = float(last['close'])

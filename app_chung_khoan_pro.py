@@ -9,21 +9,18 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import mean_absolute_percentage_error
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (V4.0 Pro - Chuẩn KRX)", layout="wide")
 st.title("🚀 Hệ Thống Phân Tích Xu Hướng (ADX + SuperTrend + Stochastic + Phân Kỳ) & R:R (V4.0 Pro)")
 st.markdown("Nguyên tắc kỷ luật: **Chỉ kích hoạt MUA khi SuperTrend Xanh & ADX ≥ 22**, không dính **Phân kỳ âm**, ưu tiên **Dòng tiền xác nhận (OBV/MFI)**, **Điểm mua sát nền** và **R:R ≥ 1.5**.")
-
 if st.button("🔄 Làm mới dữ liệu trực tiếp (Xóa Cache & Cập nhật giá mới nhất)"):
 ____st.cache_data.clear()
 ____st.rerun()
-
 if "nhat_ky_lenh" not in st.session_state:
 ____st.session_state.nhat_ky_lenh = [
 ________{"Ngày vào": "2026-11-25", "Mã CP": "HAG", "Giá vào (đ)": 13850, "Cắt lỗ (đ)": 13300, "Chốt lời (đ)": 14650, "Giá đóng tay (đ)": 0.0, "Ngày đóng": "", "Ghi chú": "Mẫu Bùng nổ Vol"}
 ____]
-
 def round_vn_tick(price: float, exchange: str = "HOSE") -> float:
 ____if price <= 0:
 ________return 0.0
@@ -38,7 +35,6 @@ ____________tick = 50.0
 ________else:
 ____________tick = 100.0
 ____return round(round(price / tick) * tick, 0)
-
 @st.cache_data(ttl=60, show_spinner=False)
 def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
 ____now_vn = datetime.utcnow() + timedelta(hours=7)
@@ -47,7 +43,6 @@ ____end_ts = int(now_vn.timestamp())
 ____start_ts = int((now_vn - timedelta(days=days)).timestamp())
 ____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
-
 ____try:
 ________url_vci = "https://vietcap.com.vn"
 ________payload_vci = {
@@ -81,7 +76,6 @@ ____________________________df[col] = df[col] * 1000
 ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
-
 ____if df.empty:
 ________try:
 ____________url_dnse = "https://entrade.com.vn"
@@ -103,7 +97,6 @@ ____________________________df[col] = df[col] * 1000
 ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
-
 ____if df.empty and sym != "VNINDEX":
 ________try:
 ____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.75), 1000)}"
@@ -125,7 +118,6 @@ ________________________df[col] = df[col] * 1000
 ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
-
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -143,9 +135,7 @@ ____________________df_yf[col] = pd.to_numeric(df_yf[col], errors='coerce')
 ________________df = df_yf.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
-
 ____return df
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_fundamental_ratios(symbol: str) -> dict:
 ____sym = symbol.upper().strip()
@@ -170,7 +160,6 @@ ________________info["de"] = round(float(res["debtOnEquity"]), 2)
 ____except Exception:
 ________pass
 ____return info
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def calculate_stock_beta(df_stock: pd.DataFrame) -> float:
 ____try:
@@ -187,7 +176,6 @@ ________var_m = np.var(ret_m)
 ________return round(float(cov / var_m), 2) if var_m > 0 else 1.0
 ____except Exception:
 ________return 1.0
-
 @st.cache_data(ttl=600, show_spinner=False)
 def get_dynamic_top_tickers(fallback_list):
 ____try:
@@ -201,7 +189,6 @@ ____________return tickers
 ____except Exception:
 ________pass
 ____return list(fallback_list)
-
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 ____df = df.copy()
 ____df['MA20'] = df['close'].rolling(window=20).mean()
@@ -316,16 +303,13 @@ ____max_past_p = float(past['close'].max())
 ____max_past_rsi = float(past['RSI'].max())
 ____min_past_p = float(past['close'].min())
 ____min_past_rsi = float(past['RSI'].min())
-
 ____bearish_div = (curr_p >= max_past_p * 0.995) and (curr_rsi < max_past_rsi - 5.0) and (max_past_rsi > 62.0)
 ____bullish_div = (curr_p <= min_past_p * 1.005) and (curr_rsi > min_past_rsi + 5.0) and (min_past_rsi < 38.0)
 ____return bearish_div, bullish_div
-
 def evaluate_stock_signals(df_clean: pd.DataFrame, ai_pct_change: float = 0.0, ai_is_reliable: bool = False, fund_info: dict = None):
 ____if fund_info is None:
 ________fund_info = {"roe": None, "pe": None, "pb": None, "de": None, "exchange": "HOSE"}
 ____exchange = fund_info.get("exchange", "HOSE")
-
 ____last = df_clean.iloc[-1]
 ____prev = df_clean.iloc[-2]
 ____curr_p = float(last['close'])
@@ -353,45 +337,35 @@ ____stoch_d = float(last['Stoch_D'])
 ____prev_k = float(prev['Stoch_K'])
 ____prev_d = float(prev['Stoch_D'])
 ____obv_bull = float(last['OBV']) > float(last['OBV_MA20'])
-
 ____bearish_div, bullish_div = detect_rsi_divergence(df_clean)
-
 ____dist_ma20_pct = ((curr_p - ma20_val) / ma20_val) * 100
 ____is_good_entry = (-1.0 <= dist_ma20_pct <= 6.0)
 ____is_overextended = (dist_ma20_pct > 6.5)
-
 ____supports = [ma20_val, kijun_val]
 ____if st_dir == 1:
 ________supports.append(st_val)
 ____valid_supports = [s for s in supports if s < curr_p]
 ____support_level = max(valid_supports) if valid_supports else (curr_p - 1.5 * atr_val)
-
 ____raw_sl = max(support_level - 0.5 * atr_val, curr_p - 2.5 * atr_val)
 ____if raw_sl >= curr_p * 0.985:
 ________raw_sl = curr_p - 1.5 * atr_val
 ____raw_tp = max(bb_upper, high_20, curr_p + 3.0 * atr_val)
-
 ____stop_loss = round_vn_tick(raw_sl, exchange)
 ____take_profit = round_vn_tick(raw_tp, exchange)
-
 ____risk_per_share = max(curr_p - stop_loss, 10.0)
 ____reward_per_share = max(take_profit - curr_p, 0.0)
 ____rr_ratio = round(reward_per_share / risk_per_share, 2)
-
 ____is_st_green = (st_dir == 1)
 ____is_adx_strong = (adx_val >= 22.0) and (plus_di > minus_di)
 ____mandatory_buy_gate = is_st_green and is_adx_strong and (not bearish_div)
-
 ____is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and is_st_green and (ma20_val >= ma50_val * 0.98)
 ____is_sideway = ((range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)) or (adx_val < 18.0 and abs(dist_ma20_pct) < 3.0)
 ____is_bull_trap = (curr_p > prev_p * 1.02) and (vol_ratio < 75.0) and (rsi_val > 65)
 ____is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and is_uptrend and mandatory_buy_gate and (not is_bull_trap)
-
 ____is_stoch_timing = (stoch_k > stoch_d) and (prev_k <= prev_d or stoch_k < 35.0) and (stoch_k < 55.0)
 ____stoch_note = f" + Timing Stoch đẹp ({stoch_k:.0f})" if (is_stoch_timing and is_uptrend) else ""
 ____obv_note = " + OBV gom hàng" if obv_bull else ""
 ____div_note = " | ⚠️ PHÂN KỲ ÂM RSI" if bearish_div else (" | ✨ Phân kỳ dương RSI" if bullish_div else "")
-
 ____fa_warn = ""
 ____roe_v = fund_info.get("roe")
 ____de_v = fund_info.get("de")
@@ -399,7 +373,6 @@ ____if roe_v is not None and roe_v < 0:
 ________fa_warn += f" | ⚠️ Lỗ (ROE {roe_v}%)"
 ____if de_v is not None and de_v > 2.5:
 ________fa_warn += f" | ⚠️ Nợ cao (D/E {de_v})"
-
 ____buy_score = (
 ________(1 if (is_uptrend and last['MACD'] > last['Signal_Line']) else 0) +
 ________(1 if mandatory_buy_gate else 0) +
@@ -421,7 +394,6 @@ ____________ai_note = f" | AI tin cậy ủng hộ ({ai_pct_change:+.1f}%)"
 ________elif ai_pct_change < -0.8:
 ____________sell_score += 1
 ____________ai_note = f" | AI cảnh báo chỉnh ({ai_pct_change:+.1f}%)"
-
 ____krx_order_tip = " [Gợi ý KRX: Lệnh MTL]" if exchange == "HOSE" else " [Gợi ý KRX: Lệnh MTL/MAK]"
 ____if is_bull_trap:
 ________trang_thai = "🚨 CẢNH BÁO BẪY GIÁ (BULL TRAP)"
@@ -451,7 +423,6 @@ ________ly_do = f"Giữ xu hướng nhưng chưa đủ điều kiện mở mua m
 ____else:
 ________trang_thai = "⚪ ĐỨNG NGOÀI QUAN SÁT"
 ________ly_do = f"Không đạt điều kiện khóa (ST {'Xanh' if is_st_green else 'Đỏ'}, ADX {adx_val:.0f}), giá dưới MA20/Mây{div_note}{fa_warn}"
-
 ____return {
 ________"trang_thai": trang_thai,
 ________"ly_do": ly_do,
@@ -474,7 +445,6 @@ ________"obv_bull": obv_bull,
 ________"bearish_div": bearish_div,
 ________"exchange": exchange
 ____}
-
 def run_strategy_backtest(df_clean: pd.DataFrame):
 ____df_bt = df_clean.tail(150).copy().reset_index(drop=True)
 ____in_pos = False
@@ -504,7 +474,6 @@ ________else:
 ____________days_held += 1
 ____________daily_ret = (float(row['close']) - float(prev['close'])) / float(prev['close'])
 ____________equity_curve.append(curr_eq * (1 + daily_ret))
-
 ____________if days_held >= 2:
 ________________if float(row['low']) <= sl_p:
 ____________________trades.append(((sl_p - entry_p) / entry_p) - 0.003)
@@ -518,7 +487,6 @@ ________________elif (row['ST_Dir'] == -1) or ((row['MACD'] < row['Signal_Line']
 ____________________trades.append(((float(row['close']) - entry_p) / entry_p) - 0.003)
 ____________________hold_days_list.append(days_held)
 ____________________in_pos = False
-
 ____eq_series = pd.Series(equity_curve)
 ____rolling_max = eq_series.cummax()
 ____max_dd = float(((eq_series - rolling_max) / rolling_max).min()) * 100
@@ -534,7 +502,6 @@ ____else:
 ________win_rate = 0.0
 ________profit_factor = 0.0
 ________avg_hold_days = 0.0
-
 ____return {"total_trades": len(trades), "win_rate": win_rate, "net_profit": net_profit, "profit_factor": profit_factor, "max_dd": max_dd, "avg_hold_days": avg_hold_days}
 def analyze_one_stock(symbol: str, days_history: int, epochs: int, nav_von: float, risk_pct: float):
 ____df = get_stock_data(symbol, days=days_history)
@@ -688,7 +655,6 @@ ________else:
 ____________return pct, f"➖ Đi ngang ({pct:+.1f}%)"
 ____except Exception:
 ________return 0.0, "➖ N/A"
-
 def scan_single_stock(ma: str):
 ____try:
 ________df_ma = get_stock_data(ma, days=320)
@@ -700,7 +666,6 @@ ____________return None
 ________fund_info = get_fundamental_ratios(ma)
 ________last = df_ma.iloc[-1]
 ________curr_p = float(last['close'])
-
 ________# 1. Chạy Backtest 150 phiên & AI dự đoán phiên tới
 ________bt = run_strategy_backtest(df_ma)
 ________ai_pct, ai_next_label = quick_ai_next_session(df_ma)

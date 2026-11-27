@@ -655,7 +655,7 @@ ____b3.metric("Lợi nhuận ròng chiến lược", f"{bt['net_profit']:+.2f}%"
 ____b4.metric("Hệ số Profit Factor", f"{bt['profit_factor']:.2f}", "Tốt (>1.5)" if bt['profit_factor'] > 1.5 else "Trung bình", delta_color="off")
 ____b5.metric("Sụt giảm tối đa (Max DD)", f"{bt['max_dd']:.2f}%", delta_color="inverse")
 ____ngay_moi_nhat = df_clean['time'].iloc[-1]
-____st.subheader(f"Biểu đồ kỹ thuật 3 tầng {symbol} — Giá, Khối lượng & RSI (Đến: {ngay_moi_nhat})")
+____st.subheader(f"Biểu đồ kỹ thuật 3 tầng {symbol} — Giá, Khối lượng & RSI + MACD (Đến: {ngay_moi_nhat})")
 ____df_plot = df_clean.tail(100).copy().reset_index(drop=True)
 ____future_dates = [f"+{k}P" for k in range(1, 27)]
 ____future_span_a = df['Span_A_Raw'].tail(26).tolist()
@@ -666,10 +666,14 @@ ____y_span_b = df_plot['Senkou_B'].tolist() + future_span_b
 ____st_bull = np.where(df_plot['ST_Dir'] == 1, df_plot['SuperTrend'], np.nan)
 ____st_bear = np.where(df_plot['ST_Dir'] == -1, df_plot['SuperTrend'], np.nan)
 ____vol_colors = ['#00C853' if c >= o else '#FF1744' for c, o in zip(df_plot['close'], df_plot['open'])]
+____macd_hist = df_plot['MACD'] - df_plot['Signal_Line']
+____hist_colors = ['rgba(0, 200, 83, 0.45)' if h >= 0 else 'rgba(255, 23, 68, 0.45)' for h in macd_hist]
+
 ____fig = make_subplots(
 ________rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
-________row_heights=[0.58, 0.21, 0.21],
-________subplot_titles=("Giá nến, SuperTrend & Mây Ichimoku", "Khối lượng giao dịch (Volume) & TB 20 phiên", "Chỉ báo động lượng RSI (14)")
+________row_heights=[0.48, 0.20, 0.32],
+________specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": True}]],
+________subplot_titles=("Giá nến, SuperTrend & Mây Ichimoku", "Khối lượng giao dịch (Volume) & TB 20 phiên", "Động lượng RSI (14) & Xu hướng MACD (12, 26, 9)")
 ____)
 ____fig.add_trace(go.Candlestick(x=df_plot['time'], open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name='Giá nến'), row=1, col=1)
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(color='orange', width=1.5), name='MA20'), row=1, col=1)
@@ -679,13 +683,21 @@ ____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_a, line=dict(color='rgba(0, 200
 ____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_b, line=dict(color='rgba(255, 80, 80, 0.45)', width=1), fill='tonexty', fillcolor='rgba(144, 238, 144, 0.18)', name='Mây Ichimoku'), row=1, col=1)
 ____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Chốt lời", row=1, col=1)
 ____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_text="Cắt lỗ", row=1, col=1)
+
 ____fig.add_trace(go.Bar(x=df_plot['time'], y=df_plot['volume'], marker_color=vol_colors, name='Volume'), row=2, col=1)
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['Vol_MA20'], line=dict(color='blue', width=1.2), name='Vol TB20'), row=2, col=1)
-____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['RSI'], line=dict(color='#7B1FA2', width=1.8), name='RSI (14)'), row=3, col=1)
-____fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
-____fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+
+____fig.add_trace(go.Bar(x=df_plot['time'], y=macd_hist, marker_color=hist_colors, name='MACD Hist'), row=3, col=1, secondary_y=False)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MACD'], line=dict(color='#2962FF', width=1.5), name='MACD'), row=3, col=1, secondary_y=False)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['Signal_Line'], line=dict(color='#FF6D00', width=1.3), name='Signal'), row=3, col=1, secondary_y=False)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['RSI'], line=dict(color='#7B1FA2', width=1.8), name='RSI (14)'), row=3, col=1, secondary_y=True)
+____fig.add_hline(y=70, line_dash="dash", line_color="rgba(255,0,0,0.4)", row=3, col=1, secondary_y=True)
+____fig.add_hline(y=30, line_dash="dash", line_color="rgba(0,180,0,0.4)", row=3, col=1, secondary_y=True)
+
+____fig.update_yaxes(title_text="MACD", row=3, col=1, secondary_y=False)
+____fig.update_yaxes(title_text="RSI", range=[10, 90], row=3, col=1, secondary_y=True)
 ____fig.update_xaxes(type='category', tickangle=-45, nticks=35)
-____fig.update_layout(xaxis_rangeslider_visible=False, height=760, hovermode='x unified')
+____fig.update_layout(xaxis_rangeslider_visible=False, height=650, hovermode='x unified', margin=dict(t=40, b=20))
 ____st.plotly_chart(fig, use_container_width=True)
 def quick_ai_next_session(df_clean: pd.DataFrame) -> tuple:
 ____try:
@@ -795,6 +807,14 @@ ____"🏗️ Nhóm Bất động sản & Khu công nghiệp": ('CEO', 'DIG', 'DX
 ____"🔥 Nhóm Sàn HNX Tiêu biểu": ('MBS', 'SHS', 'CEO', 'PVS', 'IDC', 'HUT', 'TNG', 'VCS', 'BVS', 'LAS', 'PVC', 'DTD', 'TIG', 'L14', 'NTP', 'PLC', 'TVD', 'NBC', 'DDG', 'NDN', 'MST', 'AMV', 'TAR', 'VC3', 'NRC'),
 ____"⚙️ Nhóm Thép - Dầu khí - Hóa chất - Công nghệ": ('HPG', 'HSG', 'NKG', 'VGS', 'BSR', 'GAS', 'OIL', 'PLX', 'POW', 'PVD', 'PVS', 'PVC', 'PVT', 'FPT', 'CMG', 'ELC', 'CTR', 'VGI', 'DGC', 'DCM', 'DPM', 'CSV', 'GMD', 'HAH', 'MWG', 'FRT', 'DGW', 'PNJ', 'VHC', 'ANV', 'DBC', 'HAG')
 }
+tab1, tab2, tab3 = st.tabs(["📊 Phân Tích & Backtest Chuyên Sâu", "🔍 Quét Đa Trạng Thái & Tỷ Lệ R:R", "📝 Nhật Ký Thực Chiến (High/Low)"])
+vn_compass = get_vnindex_regime()
+if vn_compass["status"] == "BULL":
+____st.success(f"**{vn_compass['label']}** — {vn_compass['desc']}")
+elif vn_compass["status"] == "BEAR":
+____st.error(f"**{vn_compass['label']}** — {vn_compass['desc']}")
+else:
+____st.warning(f"**{vn_compass['label']}** — {vn_compass['desc']}")
 tab1, tab2, tab3 = st.tabs(["📊 Phân Tích & Backtest Chuyên Sâu", "🔍 Quét Đa Trạng Thái & Tỷ Lệ R:R", "📝 Nhật Ký Thực Chiến (High/Low)"])
 with tab1:
 ____col1, col2, col3, col4, col5, col6 = st.columns((1.2, 1.1, 1.1, 1.3, 1.0, 1.3))

@@ -484,6 +484,7 @@ ____sl_p = 0.0
 ____tp_p = 0.0
 ____days_held = 0
 ____trades = []
+____hold_days_list = []
 ____equity_curve = [1.0]
 
 ____for i in range(1, len(df_bt)):
@@ -509,26 +510,34 @@ ____________equity_curve.append(curr_eq * (1 + daily_ret))
 ____________if days_held >= 2:
 ________________if float(row['low']) <= sl_p:
 ____________________trades.append(((sl_p - entry_p) / entry_p) - 0.003)
+____________________hold_days_list.append(days_held)
 ____________________in_pos = False
 ________________elif float(row['high']) >= tp_p:
 ____________________trades.append(((tp_p - entry_p) / entry_p) - 0.003)
+____________________hold_days_list.append(days_held)
 ____________________in_pos = False
 ________________elif (row['ST_Dir'] == -1) or ((row['MACD'] < row['Signal_Line']) and (row['close'] < row['MA20'])):
 ____________________trades.append(((float(row['close']) - entry_p) / entry_p) - 0.003)
+____________________hold_days_list.append(days_held)
 ____________________in_pos = False
+
 ____eq_series = pd.Series(equity_curve)
 ____rolling_max = eq_series.cummax()
 ____max_dd = float(((eq_series - rolling_max) / rolling_max).min()) * 100
 ____net_profit = (equity_curve[-1] - 1.0) * 100
+
 ____if trades:
 ________wins = [t for t in trades if t > 0]
 ________losses = [abs(t) for t in trades if t <= 0]
 ________win_rate = (len(wins) / len(trades)) * 100
 ________profit_factor = (sum(wins) / sum(losses)) if sum(losses) > 0 else (9.99 if sum(wins) > 0 else 0.0)
+________avg_hold_days = round(float(np.mean(hold_days_list)), 1)
 ____else:
 ________win_rate = 0.0
 ________profit_factor = 0.0
-____return {"total_trades": len(trades), "win_rate": win_rate, "net_profit": net_profit, "profit_factor": profit_factor, "max_dd": max_dd}
+________avg_hold_days = 0.0
+
+____return {"total_trades": len(trades), "win_rate": win_rate, "net_profit": net_profit, "profit_factor": profit_factor, "max_dd": max_dd, "avg_hold_days": avg_hold_days}
 def analyze_one_stock(symbol: str, days_history: int, epochs: int, nav_von: float, risk_pct: float):
 ____df = get_stock_data(symbol, days=days_history)
 ____if df.empty or len(df) < 90:
@@ -624,11 +633,12 @@ ____p2.success(f"Mục tiêu Chốt lời (Bước giá {fund_info['exchange']})
 ____p3.error(f"Mốc Cắt lỗ chuẩn (Bước giá {fund_info['exchange']}):\n\nThủng {gia_cat_lo:,.0f} đ ({pct_cat_lo:+.1f}%)")
 ____p4.warning(f"Khối lượng đi vốn tối đa (Rủi ro {risk_pct}%):\n\n{recommended_shares:,} CP** (~{capital_needed/1e6:,.1f} triệu đ)")
 ____st.markdown("#### 📊 Kiểm thử định lượng chiến lược trên 150 phiên gần nhất (Khóa ST Xanh + ADX ≥ 22, chuẩn luật T+2,5 & 0,3% phí):")
-____b1, b2, b3, b4 = st.columns(4)
+____b1, b2, b3, b4, b5 = st.columns(5)
 ____b1.metric("Số lệnh / Tỷ lệ thắng", f"{bt['total_trades']} lệnh", f"Win Rate: {bt['win_rate']:.1f}%")
-____b2.metric("Lợi nhuận ròng chiến lược", f"{bt['net_profit']:+.2f}%")
-____b3.metric("Hệ số Profit Factor", f"{bt['profit_factor']:.2f}", "Tốt (>1.5)" if bt['profit_factor'] > 1.5 else "Trung bình", delta_color="off")
-____b4.metric("Sụt giảm tối đa (Max DD)", f"{bt['max_dd']:.2f}%", delta_color="inverse")
+____b2.metric("Giữ lệnh trung bình", f"{bt['avg_hold_days']} phiên", "Tối thiểu T+2,5", delta_color="off")
+____b3.metric("Lợi nhuận ròng chiến lược", f"{bt['net_profit']:+.2f}%")
+____b4.metric("Hệ số Profit Factor", f"{bt['profit_factor']:.2f}", "Tốt (>1.5)" if bt['profit_factor'] > 1.5 else "Trung bình", delta_color="off")
+____b5.metric("Sụt giảm tối đa (Max DD)", f"{bt['max_dd']:.2f}%", delta_color="inverse")
 ____ngay_moi_nhat = df_clean['time'].iloc[-1]
 ____st.subheader(f"Biểu đồ kỹ thuật {symbol} — SuperTrend & Mây Ichimoku (Đến: {ngay_moi_nhat})")
 ____df_plot = df_clean.tail(100).copy().reset_index(drop=True)

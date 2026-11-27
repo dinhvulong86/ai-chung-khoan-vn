@@ -414,7 +414,6 @@ ________(1 if (curr_p < cloud_bot or st_dir == -1) else 0) +
 ________(1 if bearish_div else 0) +
 ________(2 if (rsi_val > 76 and mfi_val > 80 and not is_uptrend) else (1 if (rsi_val > 80 or mfi_val > 85) else 0))
 ____)
-
 ____ai_note = ""
 ____if ai_is_reliable:
 ________if ai_pct_change > 0.8 and buy_score >= 4:

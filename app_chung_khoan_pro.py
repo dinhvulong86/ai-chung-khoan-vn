@@ -176,6 +176,41 @@ ________var_m = np.var(ret_m)
 ________return round(float(cov / var_m), 2) if var_m > 0 else 1.0
 ____except Exception:
 ________return 1.0
+@st.cache_data(ttl=300, show_spinner=False)
+def get_vnindex_regime() -> dict:
+____try:
+________df_vn = get_stock_data("VNINDEX", days=200)
+________if df_vn.empty or len(df_vn) < 60:
+____________return {"status": "NEUTRAL", "label": "🟡 VN-Index: Chưa đủ dữ liệu", "desc": "Đi vốn thận trọng theo từng mã.", "scale": 1.0}
+________df_vn = add_technical_indicators(df_vn).dropna()
+________last = df_vn.iloc[-1]
+________vn_close = float(last['close'])
+________vn_ma20 = float(last['MA20'])
+________vn_st = int(last['ST_Dir'])
+________vn_adx = float(last['ADX'])
+________if vn_st == 1 and vn_close > vn_ma20 and vn_adx >= 20:
+____________return {
+________________"status": "BULL",
+________________"label": f"🟢 LA BÀN VN-INDEX: UPTREND THUẬN LỢI ({vn_close:,.1f} điểm | Trên MA20 & ST Xanh)",
+________________"desc": "Thị trường chung ủng hộ xu hướng tăng — Cho phép đi 100% quy mô vốn tiêu chuẩn.",
+________________"scale": 1.0
+____________}
+________elif vn_st == -1 and vn_close < vn_ma20:
+____________return {
+________________"status": "BEAR",
+________________"label": f"🔴 LA BÀN VN-INDEX: RỦI RO CAO ({vn_close:,.1f} điểm | Thủng MA20 & ST Đỏ)",
+________________"desc": "Thị trường chung điều chỉnh/biến cố ngoại cảnh — Hạn chế mở mua mới, ưu tiên bảo toàn vốn.",
+________________"scale": 0.0
+____________}
+________else:
+____________return {
+________________"status": "SIDEWAY",
+________________"label": f"🟡 LA BÀN VN-INDEX: ĐI NGANG / PHÂN HÓA KÉO TRỤ ({vn_close:,.1f} điểm | ADX {vn_adx:.0f})",
+________________"desc": "Dòng tiền phân hóa — Khuyến nghị giảm 50% quy mô đi vốn, chỉ chọn mã bùng nổ Vol >= 150%.",
+________________"scale": 0.5
+____________}
+____except Exception:
+________return {"status": "NEUTRAL", "label": "🟡 VN-Index: Đang cập nhật", "desc": "Đi vốn theo kỷ luật quản trị rủi ro.", "scale": 1.0}
 @st.cache_data(ttl=600, show_spinner=False)
 def get_dynamic_top_tickers(fallback_list):
 ____try:
@@ -491,7 +526,6 @@ ____eq_series = pd.Series(equity_curve)
 ____rolling_max = eq_series.cummax()
 ____max_dd = float(((eq_series - rolling_max) / rolling_max).min()) * 100
 ____net_profit = (equity_curve[-1] - 1.0) * 100
-
 ____if trades:
 ________wins = [t for t in trades if t > 0]
 ________losses = [abs(t) for t in trades if t <= 0]
@@ -515,6 +549,7 @@ ________st.error(f"Dữ liệu sau khi tính chỉ báo quá ít cho mã {symbol
 ________return
 ____fund_info = get_fundamental_ratios(symbol)
 ____beta_val = calculate_stock_beta(df_clean)
+____vn_regime = get_vnindex_regime()
 ____features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD', 'ADX', 'OBV')
 ____raw_values = df_clean.loc[:, features].values
 ____split_idx = int(len(raw_values) * 0.8)
@@ -542,15 +577,23 @@ ________actual_test = raw_values[split_idx:, 0]
 ________mape_err = mean_absolute_percentage_error(actual_test, inv_preds) * 100
 ____scaler_full = MinMaxScaler(feature_range=(0, 1))
 ____scaled_full = scaler_full.fit_transform(raw_values)
-____X_full = np.array([scaled_full[i-look_back:i].flatten() for i in range(look_back, len(scaled_full))])
-____y_full = np.array([scaled_full[i, 0] for i in range(look_back, len(scaled_full))])
-____model_full = MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=epochs, random_state=42)
-____model_full.fit(X_full, y_full)
-____last_30_days = scaled_full[-look_back:].flatten().reshape(1, -1)
-____pred_scaled = model_full.predict(last_30_days).item()
-____dummy_next = np.zeros((1, len(features)))
-____dummy_next.put(0, pred_scaled)
-____predicted_price = scaler_full.inverse_transform(dummy_next).item(0)
+____X_multi, y_multi = [], []
+____for i in range(look_back, len(scaled_full) - 2):
+________X_multi.append(scaled_full[i-look_back:i].flatten())
+________y_multi.append([scaled_full[i, 0], scaled_full[i+1, 0], scaled_full[i+2, 0]])
+____X_multi, y_multi = np.array(X_multi), np.array(y_multi)
+____model_multi = MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=epochs, random_state=42)
+____model_multi.fit(X_multi, y_multi)
+____last_window = scaled_full[-look_back:].flatten().reshape(1, -1)
+____preds_3d_scaled = model_multi.predict(last_window).flatten()
+____pred_prices_3d = []
+____for s_val in preds_3d_scaled:
+________dummy_step = np.zeros((1, len(features)))
+________dummy_step.put(0, float(s_val))
+________p_step = scaler_full.inverse_transform(dummy_step).item(0)
+________pred_prices_3d.append(round_vn_tick(p_step, fund_info["exchange"]))
+____p_t1, p_t2, p_t3 = pred_prices_3d
+____predicted_price = p_t1
 ____current_price = float(df_clean['close'].iloc[-1])
 ____pct_change = ((predicted_price - current_price) / current_price) * 100
 ____ai_is_reliable = (mape_err < 3.0)
@@ -562,11 +605,12 @@ ____gia_cat_lo = sig["cat_lo"]
 ____gia_chot_loi = sig["chot_loi"]
 ____pct_cat_lo = ((gia_cat_lo - current_price) / current_price) * 100
 ____pct_chot_loi = ((gia_chot_loi - current_price) / current_price) * 100
-____max_risk_vnd = nav_von * (risk_pct / 100.0)
+____effective_nav = nav_von * (vn_regime["scale"] if vn_regime["scale"] > 0 else 1.0)
+____max_risk_vnd = effective_nav * (risk_pct / 100.0)
 ____risk_1_cp = max(current_price - gia_cat_lo, 10.0)
 ____raw_shares = int(max_risk_vnd / risk_1_cp)
 ____lot_shares = (raw_shares // 100) * 100
-____max_affordable_lots = (int(nav_von / current_price) // 100) * 100
+____max_affordable_lots = (int(effective_nav / current_price) // 100) * 100
 ____recommended_shares = min(lot_shares, max_affordable_lots)
 ____capital_needed = recommended_shares * current_price
 ____st.divider()
@@ -581,7 +625,7 @@ ____roe_str = f"{fund_info['roe']}%" if fund_info['roe'] is not None else "N/A"
 ____pe_str = f"{fund_info['pe']}" if fund_info['pe'] is not None else "N/A"
 ____m5.metric("Cơ bản & Beta (CAPM)", f"ROE: {roe_str} | P/E: {pe_str}", f"Beta (β): {beta_val} vs VNIndex", delta_color="off")
 ____ai_badge = "Tin cậy" if ai_is_reliable else "Phụ trợ"
-____m6.metric("AI Dự đoán", f"{predicted_price:,.0f} đ", f"{pct_change:+.2f}% (MAPE {mape_err:.1f}% - {ai_badge})")
+____m6.metric("AI Dự đoán (T+1)", f"{predicted_price:,.0f} đ", f"{pct_change:+.2f}% (MAPE {mape_err:.1f}% - {ai_badge})")
 ____st.subheader(f"🤖 Kết Luận Đồng Nhất: {sig['trang_thai']}")
 ____if "BẪY GIÁ" in sig["trang_thai"] or "CẢNH BÁO BÁN" in sig["trang_thai"] or "PHÂN KỲ ÂM" in sig["trang_thai"]:
 ________st.error(f"Phân tích chi tiết: {sig['ly_do']}")
@@ -591,13 +635,19 @@ ____elif "SIDEWAY" in sig["trang_thai"] or "QUA ĐIỂM MUA" in sig["trang_thai"
 ________st.warning(f"Phân tích chi tiết: {sig['ly_do']}")
 ____else:
 ________st.info(f"Phân tích chi tiết: {sig['ly_do']}")
+____st.markdown(f"#### 🔮 Dự phóng chuỗi giá AI 3 phiên tới (T+1 đến T+3 — Thời điểm hàng về tài khoản | Sai số MAPE: {mape_err:.2f}%):")
+____f1, f2, f3 = st.columns(3)
+____f1.metric("Phiên T+1 (Ngày mai)", f"{p_t1:,.0f} đ", f"{((p_t1 - current_price)/current_price)*100:+.2f}%")
+____f2.metric("Phiên T+2 (Chiều hàng về)", f"{p_t2:,.0f} đ", f"{((p_t2 - current_price)/current_price)*100:+.2f}%")
+____f3.metric("Phiên T+3 (Sáng giao dịch tự do)", f"{p_t3:,.0f} đ", f"{((p_t3 - current_price)/current_price)*100:+.2f}%")
 ____st.markdown("#### 🎯 Kế hoạch giao dịch, Bước giá chuẩn KRX & Phân bổ vốn (Position Sizing):")
 ____p1, p2, p3, p4 = st.columns(4)
 ____p1.info(f"Vùng mua hợp lý (Sát MA20):\n\n**{latest_ma20:,.0f} đ – {round_vn_tick(latest_ma20 * 1.05, fund_info['exchange']):,.0f} đ**")
-____p2.success(f"Mục tiêu Chốt lời (Bước giá {fund_info['exchange']}):\n\n**{gia_chot_loi:,.0f} đ ({pct_chot_loi:+.1f}%)")
-____p3.error(f"Mốc Cắt lỗ chuẩn (Bước giá {fund_info['exchange']}):\n\nThủng {gia_cat_lo:,.0f} đ ({pct_cat_lo:+.1f}%)")
-____p4.warning(f"Khối lượng đi vốn tối đa (Rủi ro {risk_pct}%):\n\n{recommended_shares:,} CP** (~{capital_needed/1e6:,.1f} triệu đ)")
-____st.markdown("#### 📊 Kiểm thử định lượng chiến lược trên 150 phiên gần nhất (Khóa ST Xanh + ADX ≥ 22, chuẩn luật T+2,5 & 0,3% phí):")
+____p2.success(f"Mục tiêu Chốt lời (Bước giá {fund_info['exchange']}):\n\n**{gia_chot_loi:,.0f} đ ({pct_chot_loi:+.1f}%)**")
+____p3.error(f"Mốc Cắt lỗ chuẩn (Bước giá {fund_info['exchange']}):\n\n**Thủng {gia_cat_lo:,.0f} đ ({pct_cat_lo:+.1f}%)**")
+____scale_note = " (Giảm 50% theo VN-Index)" if vn_regime["scale"] == 0.5 else (" (Cảnh báo VN-Index Đỏ)" if vn_regime["scale"] == 0.0 else "")
+____p4.warning(f"Khối lượng đi vốn tối đa (Rủi ro {risk_pct}%){scale_note}:\n\n**{recommended_shares:,} CP** (~{capital_needed/1e6:,.1f} triệu đ)")
+____st.markdown("#### 📊 Kiểm thử định lượng chiến lược trên 150 phiên gần nhất (Khóa ST Xanh + ADX ≥ 22 + Trên Mây, luật T+2,5 & 0,3% phí):")
 ____b1, b2, b3, b4, b5 = st.columns(5)
 ____b1.metric("Số lệnh / Tỷ lệ thắng", f"{bt['total_trades']} lệnh", f"Win Rate: {bt['win_rate']:.1f}%")
 ____b2.metric("Giữ lệnh trung bình", f"{bt['avg_hold_days']} phiên", "Tối thiểu T+2,5", delta_color="off")
@@ -605,7 +655,7 @@ ____b3.metric("Lợi nhuận ròng chiến lược", f"{bt['net_profit']:+.2f}%"
 ____b4.metric("Hệ số Profit Factor", f"{bt['profit_factor']:.2f}", "Tốt (>1.5)" if bt['profit_factor'] > 1.5 else "Trung bình", delta_color="off")
 ____b5.metric("Sụt giảm tối đa (Max DD)", f"{bt['max_dd']:.2f}%", delta_color="inverse")
 ____ngay_moi_nhat = df_clean['time'].iloc[-1]
-____st.subheader(f"Biểu đồ kỹ thuật {symbol} — SuperTrend & Mây Ichimoku (Đến: {ngay_moi_nhat})")
+____st.subheader(f"Biểu đồ kỹ thuật 3 tầng {symbol} — Giá, Khối lượng & RSI (Đến: {ngay_moi_nhat})")
 ____df_plot = df_clean.tail(100).copy().reset_index(drop=True)
 ____future_dates = [f"+{k}P" for k in range(1, 27)]
 ____future_span_a = df['Span_A_Raw'].tail(26).tolist()
@@ -615,17 +665,27 @@ ____y_span_a = df_plot['Senkou_A'].tolist() + future_span_a
 ____y_span_b = df_plot['Senkou_B'].tolist() + future_span_b
 ____st_bull = np.where(df_plot['ST_Dir'] == 1, df_plot['SuperTrend'], np.nan)
 ____st_bear = np.where(df_plot['ST_Dir'] == -1, df_plot['SuperTrend'], np.nan)
-____fig = go.Figure()
-____fig.add_trace(go.Candlestick(x=df_plot['time'], open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name='Giá nến'))
-____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(color='orange', width=1.5), name='MA20 (Nền hỗ trợ)'))
-____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bull, line=dict(color='#00C853', width=2.2), name='SuperTrend (Tăng)'))
-____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bear, line=dict(color='#FF1744', width=2.2), name='SuperTrend (Giảm)'))
-____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_a, line=dict(color='rgba(0, 200, 100, 0.45)', width=1), name='Senkou A (Kéo 26P)'))
-____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_b, line=dict(color='rgba(255, 80, 80, 0.45)', width=1), fill='tonexty', fillcolor='rgba(144, 238, 144, 0.18)', name='Mây Ichimoku'))
-____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Mục tiêu Chốt lời")
-____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_text="Cắt lỗ hỗ trợ")
-____fig.update_xaxes(type='category', tickangle=-45, nticks=42)
-____fig.update_layout(xaxis_rangeslider_visible=False, height=560, hovermode='x unified')
+____vol_colors = ['#00C853' if c >= o else '#FF1744' for c, o in zip(df_plot['close'], df_plot['open'])]
+____fig = make_subplots(
+________rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+________row_heights=[0.58, 0.21, 0.21],
+________subplot_titles=("Giá nến, SuperTrend & Mây Ichimoku", "Khối lượng giao dịch (Volume) & TB 20 phiên", "Chỉ báo động lượng RSI (14)")
+____)
+____fig.add_trace(go.Candlestick(x=df_plot['time'], open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name='Giá nến'), row=1, col=1)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(color='orange', width=1.5), name='MA20'), row=1, col=1)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bull, line=dict(color='#00C853', width=2.2), name='SuperTrend (Tăng)'), row=1, col=1)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bear, line=dict(color='#FF1744', width=2.2), name='SuperTrend (Giảm)'), row=1, col=1)
+____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_a, line=dict(color='rgba(0, 200, 100, 0.45)', width=1), name='Senkou A'), row=1, col=1)
+____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_b, line=dict(color='rgba(255, 80, 80, 0.45)', width=1), fill='tonexty', fillcolor='rgba(144, 238, 144, 0.18)', name='Mây Ichimoku'), row=1, col=1)
+____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Chốt lời", row=1, col=1)
+____fig.add_hline(y=gia_cat_lo, line_dash="dot", line_color="red", annotation_text="Cắt lỗ", row=1, col=1)
+____fig.add_trace(go.Bar(x=df_plot['time'], y=df_plot['volume'], marker_color=vol_colors, name='Volume'), row=2, col=1)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['Vol_MA20'], line=dict(color='blue', width=1.2), name='Vol TB20'), row=2, col=1)
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['RSI'], line=dict(color='#7B1FA2', width=1.8), name='RSI (14)'), row=3, col=1)
+____fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+____fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+____fig.update_xaxes(type='category', tickangle=-45, nticks=35)
+____fig.update_layout(xaxis_rangeslider_visible=False, height=760, hovermode='x unified')
 ____st.plotly_chart(fig, use_container_width=True)
 def quick_ai_next_session(df_clean: pd.DataFrame) -> tuple:
 ____try:
@@ -897,7 +957,7 @@ ________if bang_cham_diem:
 ____________df_nk = pd.DataFrame(bang_cham_diem)
 ____________st.dataframe(df_nk, use_container_width=True, hide_index=True)
 ____________if tong_lenh_xac_dinh > 0:
-________________st.metric("Tỷ lệ thắng thực chiến (các lệnh đã đóng)", f"{so_lenh_thang}/{tong_lenh_xac_dinh} ({so_lenh_thang/tong_lenh_xac_dinh100:.0f}%)")
+________________st.metric("Tỷ lệ thắng thực chiến (các lệnh đã đóng)", f"{so_lenh_thang}/{tong_lenh_xac_dinh} ({so_lenh_thang/tong_lenh_xac_dinh*100:.0f}%)")
 ____________c_btn1, c_btn2 = st.columns(2)
 ____________csv_data = df_nk.to_csv(index=False).encode('utf-8-sig')
 ____________c_btn1.download_button("📥 Tải Nhật Ký về máy (CSV)", data=csv_data, file_name="nhat_ky_thuc_chien.csv", mime="text/csv")

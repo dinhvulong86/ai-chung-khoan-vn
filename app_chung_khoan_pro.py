@@ -11,15 +11,15 @@ from sklearn.metrics import mean_absolute_percentage_error
 import plotly.graph_objects as go
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (V3.1 Pro)", layout="wide")
-st.title("🚀 Hệ Thống Phân Tích Xu Hướng, Dòng Tiền & Tỷ Lệ R:R (V3.1)")
-st.markdown("Ưu tiên **Xu hướng tăng**, **Dòng tiền xác nhận**, **Điểm mua sát nền MA20** và **Tỷ lệ Lợi nhuận/Rủi ro (R:R ≥ 1.5)**.")
+st.set_page_config(page_title="Hệ Thống AI Chứng Khoán VN (V3.3 Pro)", layout="wide")
+st.title("🚀 Hệ Thống Phân Tích Xu Hướng (ADX + SuperTrend + Stochastic) & R:R (V3.3 Pro)")
+st.markdown("Nguyên tắc kỷ luật: **Chỉ kích hoạt MUA khi SuperTrend Xanh & ADX ≥ 22**, ưu tiên **Dòng tiền xác nhận**, **Điểm mua sát nền (Stochastic Timing)** và **R:R ≥ 1.5**.")
 if st.button("🔄 Làm mới dữ liệu trực tiếp (Xóa Cache & Cập nhật giá mới nhất)"):
     st.cache_data.clear()
     st.rerun()
 if "nhat_ky_lenh" not in st.session_state:
 ____st.session_state.nhat_ky_lenh = [
-________{"Ngày quét": "2026-11-25", "Mã CP": "HAG", "Giá vào (đ)": 13850, "Cắt lỗ (đ)": 13314, "Chốt lời (đ)": 14654, "Ghi chú": "Mẫu Bùng nổ Vol"}
+________{"Ngày vào": "2026-11-25", "Mã CP": "HAG", "Giá vào (đ)": 13850, "Cắt lỗ (đ)": 13314, "Chốt lời (đ)": 14654, "Giá đóng tay (đ)": 0.0, "Ngày đóng": "", "Ghi chú": "Mẫu Bùng nổ Vol"}
 ____]
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -31,7 +31,7 @@ ____start_ts = int((now_vn - timedelta(days=days)).timestamp())
 ____sym = symbol.upper().strip()
 ____df = pd.DataFrame()
 
-____# 1. Nguồn 1: Vietcap (VCI) - Đầy đủ 100% HOSE, HNX (MBS, CEO...), UPCOM
+____# 1. Nguồn 1: Vietcap (VCI)
 ____try:
 ________url_vci = "https://vietcap.com.vn"
 ________payload_vci = {
@@ -44,7 +44,7 @@ ________headers_vci = {
 ____________'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
 ____________'Content-Type': 'application/json',
 ____________'Origin': 'https://vietcap.com.vn',
-____________'Referer': 'https://vietcap.com.vn/'
+____________'Referer': 'https://vietcap.com.vn'
 ________}
 ________res_vci = requests.post(url_vci, json=payload_vci, headers=headers_vci, timeout=8).json()
 ________if isinstance(res_vci, list) and len(res_vci) > 0:
@@ -65,7 +65,7 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ____except Exception:
 ________pass
 
-____# 2. Nguồn 2: DNSE / EntradeX - Hạ tầng mở quốc tế, đầy đủ sàn HNX & UPCOM
+____# 2. Nguồn 2: DNSE / EntradeX
 ____if df.empty:
 ________try:
 ____________url_dnse = "https://entrade.com.vn"
@@ -87,7 +87,7 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 3. Nguồn 3: Simplize (Đúng tên cột priceOpen, priceClose, totalVolume)
+____# 3. Nguồn 3: Simplize
 ____if df.empty:
 ________try:
 ____________url_sim = f"https://simplize.vn{sym}?page=0&size={min(int(days * 0.72), 1000)}"
@@ -110,7 +110,7 @@ ________________df = df.dropna().sort_values('time').reset_index(drop=True)
 ________except Exception:
 ____________pass
 
-____# 4. Nguồn 4: Yahoo Finance (.VN - Dự phòng sàn HOSE)
+____# 4. Nguồn 4: Yahoo Finance
 ____if df.empty:
 ________try:
 ____________start_date = (now_vn - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -162,6 +162,61 @@ ____tr3 = (df['low'] - df['close'].shift(1)).abs()
 ____df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 ____df['ATR'] = df['TR'].ewm(alpha=1/14, min_periods=14, adjust=False).mean()
 
+____# ADX (14) & +DI / -DI
+____up_move = df['high'] - df['high'].shift(1)
+____down_move = df['low'].shift(1) - df['low']
+____plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+____minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+____atr_14 = df['ATR'].replace(0, np.nan)
+____df['Plus_DI'] = 100 * (pd.Series(plus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
+____df['Minus_DI'] = 100 * (pd.Series(minus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_14)
+____di_sum = (df['Plus_DI'] + df['Minus_DI']).replace(0, np.nan)
+____dx = 100 * ((df['Plus_DI'] - df['Minus_DI']).abs() / di_sum)
+____df['ADX'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+
+____# SuperTrend (10, 3.0)
+____st_atr = df['TR'].ewm(alpha=1/10, min_periods=10, adjust=False).mean()
+____hl2 = (df['high'] + df['low']) / 2
+____basic_ub = (hl2 + 3.0 * st_atr).values
+____basic_lb = (hl2 - 3.0 * st_atr).values
+____close_vals = df['close'].values
+____n = len(df)
+____final_ub = np.zeros(n)
+____final_lb = np.zeros(n)
+____supertrend = np.zeros(n)
+____st_dir = np.ones(n, dtype=int)  # 1: Xanh (Uptrend), -1: Đỏ (Downtrend)
+
+____for i in range(n):
+________if i == 0 or np.isnan(basic_ub[i]):
+____________final_ub[i] = basic_ub[i]
+____________final_lb[i] = basic_lb[i]
+____________supertrend[i] = basic_lb[i]
+____________continue
+________final_ub[i] = basic_ub[i] if (basic_ub[i] < final_ub[i-1] or close_vals[i-1] > final_ub[i-1]) else final_ub[i-1]
+________final_lb[i] = basic_lb[i] if (basic_lb[i] > final_lb[i-1] or close_vals[i-1] < final_lb[i-1]) else final_lb[i-1]
+________if st_dir[i-1] == 1:
+____________if close_vals[i] < final_lb[i]:
+________________st_dir[i] = -1
+________________supertrend[i] = final_ub[i]
+____________else:
+________________st_dir[i] = 1
+________________supertrend[i] = final_lb[i]
+________else:
+____________if close_vals[i] > final_ub[i]:
+________________st_dir[i] = 1
+________________supertrend[i] = final_lb[i]
+____________else:
+________________st_dir[i] = -1
+________________supertrend[i] = final_ub[i]
+____df['SuperTrend'] = supertrend
+____df['ST_Dir'] = st_dir
+____# Stochastic Oscillator (14, 3, 3) - Timing điểm mua pullback
+____low_14 = df['low'].rolling(window=14).min()
+____high_14 = df['high'].rolling(window=14).max()
+____denom_stoch = (high_14 - low_14).replace(0, np.nan)
+____fast_k = 100 * ((df['close'] - low_14) / denom_stoch)
+____df['Stoch_K'] = fast_k.rolling(window=3).mean()
+____df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
 ____# Ichimoku Cloud (9, 26, 52)
 ____df['Tenkan'] = (df['high'].rolling(9).max() + df['low'].rolling(9).min()) / 2
 ____df['Kijun'] = (df['high'].rolling(26).max() + df['low'].rolling(26).min()) / 2
@@ -169,12 +224,10 @@ ____df['Span_A_Raw'] = (df['Tenkan'] + df['Kijun']) / 2
 ____df['Span_B_Raw'] = (df['high'].rolling(52).max() + df['low'].rolling(52).min()) / 2
 ____df['Senkou_A'] = df['Span_A_Raw'].shift(26)
 ____df['Senkou_B'] = df['Span_B_Raw'].shift(26)
-
 ____# Hộp Sideway & Đỉnh/Đáy 20 phiên
 ____df['High_20'] = df['high'].rolling(window=20).max()
 ____df['Low_20'] = df['low'].rolling(window=20).min()
 ____df['Range_20_Pct'] = ((df['High_20'] - df['Low_20']) / df['Low_20'].replace(0, np.nan)) * 100
-
 ____# RSI (14) chuẩn Wilder
 ____delta = df['close'].diff()
 ____gain = delta.where(delta > 0, 0.0)
@@ -186,7 +239,6 @@ ________(avg_gain == 0) & (avg_loss == 0), 50.0,
 ________np.where(avg_loss == 0, 100.0, 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss.replace(0, np.nan)))))
 ____)
 ____df['RSI'] = pd.Series(rsi_vals, index=df.index)
-
 ____# MFI (14)
 ____tp = (df['high'] + df['low'] + df['close']) / 3
 ____raw_mf = tp * df['volume']
@@ -200,16 +252,13 @@ ________np.where(neg_sum == 0, 100.0,
 ________np.where(pos_sum == 0, 0.0, 100.0 - (100.0 / (1.0 + (pos_sum / neg_sum.replace(0, np.nan))))))
 ____)
 ____df['MFI'] = pd.Series(mfi_vals, index=df.index)
-
 ____# MACD (12, 26, 9)
 ____exp1 = df['close'].ewm(span=12, adjust=False).mean()
 ____exp2 = df['close'].ewm(span=26, adjust=False).mean()
 ____df['MACD'] = exp1 - exp2
 ____df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
 ____return df
-
 def evaluate_stock_signals(df_clean: pd.DataFrame, ai_pct_change: float = 0.0, ai_is_reliable: bool = False):
-____# Uu tien: Xu huong tang + Dong tien xac nhan + Diem mua sat nen + Ty le R:R >= 1.5
 ____last = df_clean.iloc[-1]
 ____prev = df_clean.iloc[-2]
 ____curr_p = float(last['close'])
@@ -227,31 +276,47 @@ ____low_20 = float(last['Low_20'])
 ____cloud_top = max(float(last['Senkou_A']), float(last['Senkou_B']))
 ____cloud_bot = min(float(last['Senkou_A']), float(last['Senkou_B']))
 ____range_20 = float(last['Range_20_Pct'])
-
-____# 1. Tính Điểm Mua Hợp Lý & Tỷ lệ Lợi nhuận / Rủi ro (R:R) thực tế theo Hỗ trợ/Kháng cự
+____# Chỉ số ADX, +DI/-DI, SuperTrend, Stochastic
+____adx_val = float(last['ADX'])
+____plus_di = float(last['Plus_DI'])
+____minus_di = float(last['Minus_DI'])
+____st_val = float(last['SuperTrend'])
+____st_dir = int(last['ST_Dir'])
+____stoch_k = float(last['Stoch_K'])
+____stoch_d = float(last['Stoch_D'])
+____prev_k = float(prev['Stoch_K'])
+____prev_d = float(prev['Stoch_D'])
+____# 1. Tính Điểm Mua Hợp Lý & Tỷ lệ R:R thực tế
 ____dist_ma20_pct = ((curr_p - ma20_val) / ma20_val) * 100
 ____is_good_entry = (-1.0 <= dist_ma20_pct <= 6.0)
 ____is_overextended = (dist_ma20_pct > 6.5)
-
-____# Cắt lỗ đặt dưới hỗ trợ gần nhất (MA20 hoặc Kijun) trừ đệm 0.5 ATR, nhưng không xa quá 2.5 ATR
-____support_level = min(ma20_val, kijun_val) if curr_p > min(ma20_val, kijun_val) else (curr_p - 1.5 * atr_val)
+____supports = [ma20_val, kijun_val]
+____if st_dir == 1:
+________supports.append(st_val)
+____valid_supports = [s for s in supports if s < curr_p]
+____support_level = max(valid_supports) if valid_supports else (curr_p - 1.5 * atr_val)
 ____stop_loss = max(support_level - 0.5 * atr_val, curr_p - 2.5 * atr_val)
 ____if stop_loss >= curr_p * 0.985:
 ________stop_loss = curr_p - 1.5 * atr_val
-
-____# Chốt lời kỳ vọng theo dải Bollinger trên / Đỉnh cũ / Mở rộng 3 ATR
 ____take_profit = max(bb_upper, high_20, curr_p + 3.0 * atr_val)
 ____risk_per_share = max(curr_p - stop_loss, 1.0)
 ____reward_per_share = max(take_profit - curr_p, 0.0)
 ____rr_ratio = round(reward_per_share / risk_per_share, 2)
-____# 2. Xác định các trạng thái thị trường
-____is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and (ma20_val >= ma50_val * 0.98)
-____is_sideway = (range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)
+____# 2. Điều kiện khóa cứng "Chỉ mua khi SuperTrend Xanh + ADX >= 22"
+____is_st_green = (st_dir == 1)
+____is_adx_strong = (adx_val >= 22.0) and (plus_di > minus_di)
+____mandatory_buy_gate = is_st_green and is_adx_strong
+____is_uptrend = (curr_p > ma20_val) and (curr_p > cloud_top) and is_st_green and (ma20_val >= ma50_val * 0.98)
+____is_sideway = ((range_20 < 9.5) and (abs(dist_ma20_pct) < 2.5)) or (adx_val < 18.0 and abs(dist_ma20_pct) < 3.0)
 ____is_bull_trap = (curr_p > prev_p * 1.02) and (vol_ratio < 75.0) and (rsi_val > 65)
-____is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and (curr_p > ma20_val) and (not is_bull_trap)
-____# 3. Chấm điểm 4 tiêu chí vàng của Grok: (1) Xu hướng, (2) Dòng tiền, (3) Điểm mua hợp lý, (4) R:R >= 1.5
+____is_vol_breakout = (curr_p > prev_p * 1.015) and (vol_ratio >= 150.0) and is_uptrend and mandatory_buy_gate and (not is_bull_trap)
+____# Tín hiệu Timing từ Stochastic (%K cắt lên %D từ vùng thấp < 35 trong xu hướng tăng)
+____is_stoch_timing = (stoch_k > stoch_d) and (prev_k <= prev_d or stoch_k < 35.0) and (stoch_k < 55.0)
+____stoch_note = f" + Timing Stoch đẹp ({stoch_k:.0f})" if (is_stoch_timing and is_uptrend) else ""
+____# 3. Chấm điểm 5 tiêu chí Pro (Tăng trọng số ADX + SuperTrend lên 2/5 điểm)
 ____buy_score = (
 ________(1 if (is_uptrend and last['MACD'] > last['Signal_Line']) else 0) +
+________(1 if mandatory_buy_gate else 0) +
 ________(1 if (vol_ratio >= 110.0 and curr_p >= prev_p and mfi_val >= 45) else 0) +
 ________(1 if is_good_entry else 0) +
 ________(1 if rr_ratio >= 1.5 else 0)
@@ -259,42 +324,42 @@ ____)
 ____sell_score = (
 ________(1 if last['MACD'] < last['Signal_Line'] else 0) +
 ________(1 if curr_p < ma20_val else 0) +
-________(1 if curr_p < cloud_bot else 0) +
+________(1 if (curr_p < cloud_bot or st_dir == -1) else 0) +
 ________(2 if (rsi_val > 76 and mfi_val > 80 and not is_uptrend) else (1 if (rsi_val > 80 or mfi_val > 85) else 0))
 ____)
-____# Bộ lọc phụ AI (chỉ tham khảo khi sai số kiểm thử MAPE < 3%)
 ____ai_note = ""
 ____if ai_is_reliable:
-________if ai_pct_change > 0.8 and buy_score >= 3:
+________if ai_pct_change > 0.8 and buy_score >= 4:
 ____________ai_note = f" | AI tin cậy ủng hộ ({ai_pct_change:+.1f}%)"
 ________elif ai_pct_change < -0.8:
 ____________sell_score += 1
 ____________ai_note = f" | AI cảnh báo chỉnh ({ai_pct_change:+.1f}%)"
-____# 4. Kết luận ưu tiên điểm mua an toàn & tỷ lệ R:R tốt
+____# 4. Kết luận áp dụng khóa cứng SuperTrend Xanh + ADX >= 22
 ____if is_bull_trap:
 ________trang_thai = "🚨 CẢNH BÁO BẪY GIÁ (BULL TRAP)"
 ________ly_do = f"Giá tăng nhưng Vol yếu ({vol_ratio:.0f}% TB20), RSI cao ({rsi_val:.0f}) -> Tuyệt đối không mua đuổi"
 ____elif is_vol_breakout and is_good_entry and rr_ratio >= 1.5 and sell_score <= 1:
 ________trang_thai = "🔥 BÙNG NỔ VOL + ĐIỂM MUA CHUẨN"
-________ly_do = f"Xu hướng tăng, Vol bùng nổ {vol_ratio:.0f}%, sát nền MA20 (+{dist_ma20_pct:.1f}%), R:R tốt ({rr_ratio}:1){ai_note}"
+________ly_do = f"Đạt chuẩn ST Xanh + ADX {adx_val:.0f} (+DI>{minus_di:.0f}), Vol {vol_ratio:.0f}%, sát MA20 (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{ai_note}"
 ____elif is_overextended and is_uptrend:
 ________trang_thai = "⏳ QUA ĐIỂM MUA (CHỜ CHỈNH)"
-________ly_do = f"Uptrend khỏe nhưng giá đã chạy xa nền MA20 (+{dist_ma20_pct:.1f}%), R:R thấp ({rr_ratio}:1) -> Chờ nhịp kéo ngược"
+________ly_do = f"Uptrend khỏe (ADX {adx_val:.0f}, ST Xanh) nhưng giá chạy xa MA20 (+{dist_ma20_pct:.1f}%), R:R thấp ({rr_ratio}:1) -> Chờ kéo ngược"
 ____elif is_sideway:
 ________trang_thai = "⏸️ SIDEWAY (ĐI NGANG)"
-________ly_do = f"Biên độ 20P nén {range_20:.1f}% ({low_20:,.0f}–{high_20:,.0f}đ) -> Chỉ canh mua gần hỗ trợ {low_20:,.0f}đ"
+________ly_do = f"Xu hướng yếu (ADX {adx_val:.0f}), biên độ 20P {range_20:.1f}% ({low_20:,.0f}–{high_20:,.0f}đ) -> Canh mua gần hỗ trợ {low_20:,.0f}đ"
 ____elif sell_score >= 3:
 ________trang_thai = "🔴 CẢNH BÁO BÁN / CHỐT LỜI"
-________ly_do = f"Gãy hỗ trợ MA20/Mây hoặc quá mua cực đại (RSI {rsi_val:.0f} / MFI {mfi_val:.0f}){ai_note}"
-____elif buy_score >= 3 and rr_ratio >= 1.5 and sell_score <= 1:
+________ly_do = f"Gãy hỗ trợ MA20/SuperTrend Đỏ hoặc quá mua (RSI {rsi_val:.0f} / MFI {mfi_val:.0f}){ai_note}"
+____elif mandatory_buy_gate and buy_score >= 4 and rr_ratio >= 1.5 and sell_score <= 1:
 ________trang_thai = "🟢 TÍN HIỆU MUA ĐẸP (R:R TỐT)"
-________ly_do = f"Uptrend + Dòng tiền xác nhận, điểm mua sát nền (+{dist_ma20_pct:.1f}%), R:R đạt {rr_ratio}:1{ai_note}"
-____elif buy_score >= 2 and sell_score <= 2:
+________ly_do = f"Khóa chuẩn ST Xanh + ADX {adx_val:.0f}, dòng tiền xác nhận, sát nền (+{dist_ma20_pct:.1f}%), R:R {rr_ratio}:1{stoch_note}{ai_note}"
+____elif buy_score >= 3 and sell_score <= 2:
+________thieu_dk = "ADX < 22 hoặc -DI > +DI" if not is_adx_strong else ("SuperTrend Đỏ" if not is_st_green else "chưa đạt R:R/Dòng tiền")
 ________trang_thai = "🟡 NẮM GIỮ / THEO DÕI"
-________ly_do = f"Đang giữ xu hướng, cách nền MA20 {dist_ma20_pct:+.1f}%, R:R hiện tại {rr_ratio}:1{ai_note}"
+________ly_do = f"Giữ xu hướng nhưng chưa đủ điều kiện mở mua mới ({thieu_dk}), ADX {adx_val:.0f}, R:R {rr_ratio}:1{stoch_note}{ai_note}"
 ____else:
 ________trang_thai = "⚪ ĐỨNG NGOÀI QUAN SÁT"
-________ly_do = f"Chưa đạt xu hướng tăng hoặc dòng tiền yếu (Giá dưới MA20 {ma20_val:,.0f}đ / dưới Mây)"
+________ly_do = f"Không đạt điều kiện khóa (ST {'Xanh' if is_st_green else 'Đỏ'}, ADX {adx_val:.0f}), giá dưới MA20/Mây"
 ____return {
 ________"trang_thai": trang_thai,
 ________"ly_do": ly_do,
@@ -305,10 +370,17 @@ ________"chot_loi": take_profit,
 ________"rr_ratio": rr_ratio,
 ________"dist_ma20_pct": dist_ma20_pct,
 ________"cloud_top": cloud_top,
-________"cloud_bot": cloud_bot
+________"cloud_bot": cloud_bot,
+________"adx": adx_val,
+________"plus_di": plus_di,
+________"minus_di": minus_di,
+________"st_val": st_val,
+________"st_dir": st_dir,
+________"stoch_k": stoch_k,
+________"stoch_d": stoch_d
 ____}
 def run_strategy_backtest(df_clean: pd.DataFrame):
-____# Kiem thu dinh luong tren 150 phien: Ap dung dung quy tac Xu huong + Sat nen MA20 + Cat lo ho tro
+____# Kiểm thử định lượng trên 150 phiên: Áp dụng khóa cứng SuperTrend Xanh + ADX >= 22 + +DI > -DI
 ____df_bt = df_clean.tail(150).copy().reset_index(drop=True)
 ____in_pos = False
 ____entry_p = 0.0
@@ -322,7 +394,8 @@ ________prev = df_bt.iloc[i-1]
 ________curr_eq = equity_curve[-1]
 ________if not in_pos:
 ____________dist_ma20 = ((float(prev['close']) - float(prev['MA20'])) / float(prev['MA20'])) * 100
-____________if (prev['MACD'] > prev['Signal_Line']) and (0 <= dist_ma20 <= 6.0) and (prev['Vol_Ratio'] >= 100):
+____________cond_trend = (prev['MACD'] > prev['Signal_Line']) and (prev['ST_Dir'] == 1) and (prev['ADX'] >= 22.0) and (prev['Plus_DI'] > prev['Minus_DI'])
+____________if cond_trend and (0 <= dist_ma20 <= 6.0) and (prev['Vol_Ratio'] >= 100):
 ________________in_pos = True
 ________________entry_p = float(row['open'])
 ________________sl_p = entry_p - 2.0 * float(prev['ATR'])
@@ -337,7 +410,7 @@ ________________in_pos = False
 ____________elif float(row['high']) >= tp_p:
 ________________trades.append(((tp_p - entry_p) / entry_p) - 0.003)
 ________________in_pos = False
-____________elif (row['MACD'] < row['Signal_Line']) and (row['close'] < row['MA20']):
+____________elif (row['ST_Dir'] == -1) or ((row['MACD'] < row['Signal_Line']) and (row['close'] < row['MA20'])):
 ________________trades.append(((float(row['close']) - entry_p) / entry_p) - 0.003)
 ________________in_pos = False
 ____eq_series = pd.Series(equity_curve)
@@ -363,7 +436,7 @@ ____df_clean = df.dropna().copy()
 ____if len(df_clean) < 60:
 ________st.error(f"Dữ liệu sau khi tính chỉ báo quá ít cho mã {symbol}.")
 ________return
-____features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD')
+____features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD', 'ADX')
 ____raw_values = df_clean.loc[:, features].values
 ____split_idx = int(len(raw_values) * 0.8)
 ____scaler_eval = MinMaxScaler(feature_range=(0, 1))
@@ -404,7 +477,6 @@ ____pct_change = ((predicted_price - current_price) / current_price) * 100
 ____ai_is_reliable = (mape_err < 3.0)
 ____vol_ratio = float(df_clean['Vol_Ratio'].iloc[-1])
 ____latest_rsi = float(df_clean['RSI'].iloc[-1])
-____latest_mfi = float(df_clean['MFI'].iloc[-1])
 ____latest_ma20 = float(df_clean['MA20'].iloc[-1])
 ____sig = evaluate_stock_signals(df_clean, ai_pct_change=pct_change, ai_is_reliable=ai_is_reliable)
 ____bt = run_strategy_backtest(df_clean)
@@ -413,14 +485,18 @@ ____gia_chot_loi = sig["chot_loi"]
 ____pct_cat_lo = ((gia_cat_lo - current_price) / current_price) * 100
 ____pct_chot_loi = ((gia_chot_loi - current_price) / current_price) * 100
 ____st.divider()
-____m1, m2, m3, m4, m5 = st.columns(5)
+____# Hàng 1: 6 Metric chi tiết (Tách rõ ADX, +DI/-DI, SuperTrend, Stochastic, R:R)
+____m1, m2, m3, m4, m5, m6 = st.columns(6)
 ____m1.metric("Giá hiện tại", f"{current_price:,.0f} đ", f"Vol: {vol_ratio:.0f}% TB20")
-____m2.metric("Tỷ lệ Lợi nhuận / Rủi ro", f"{sig['rr_ratio']} : 1", "Đạt chuẩn (≥1.5)" if sig['rr_ratio'] >= 1.5 else "Rủi ro cao (<1.5)", delta_color="off")
-____m3.metric("Cách nền hỗ trợ MA20", f"{sig['dist_ma20_pct']:+.1f}%", "Sát nền (≤6%)" if 0 <= sig['dist_ma20_pct'] <= 6 else ("Xa nền (>6%)" if sig['dist_ma20_pct'] > 6 else "Dưới MA20"), delta_color="off")
-____ichi_status = "Trên mây (Tăng)" if current_price > sig["cloud_top"] else ("Dưới mây (Giảm)" if current_price < sig["cloud_bot"] else "Trong mây (Giằng co)")
-____m4.metric("Vị thế Mây Ichimoku", ichi_status, f"RSI: {latest_rsi:.0f} | MFI: {latest_mfi:.0f}", delta_color="off")
+____st_status_txt = "🟢 XANH (Tăng)" if sig["st_dir"] == 1 else "🔴 ĐỎ (Giảm)"
+____m2.metric("SuperTrend (10,3)", st_status_txt, f"Mốc ST: {sig['st_val']:,.0f} đ", delta_color="off")
+____adx_strength = "Mạnh (≥22)" if sig["adx"] >= 22 else "Yếu (<22)"
+____m3.metric("ADX & DI (14)", f"ADX: {sig['adx']:.1f} ({adx_strength})", f"+DI: {sig['plus_di']:.1f} | -DI: {sig['minus_di']:.1f}", delta_color="off")
+____m4.metric("Tỷ lệ R:R & Điểm", f"{sig['rr_ratio']} : 1", f"Điểm mua: {sig['buy_score']}/5", delta_color="off")
+____ichi_status = "Trên mây" if current_price > sig["cloud_top"] else ("Dưới mây" if current_price < sig["cloud_bot"] else "Trong mây")
+____m5.metric("Vị thế Nền & Mây", f"{ichi_status} ({sig['dist_ma20_pct']:+.1f}%)", f"Stoch %K/%D: {sig['stoch_k']:.0f}/{sig['stoch_d']:.0f}", delta_color="off")
 ____ai_badge = "Tin cậy" if ai_is_reliable else "Phụ trợ"
-____m5.metric("AI Dự đoán (Bộ lọc phụ)", f"{predicted_price:,.0f} đ", f"{pct_change:+.2f}% (MAPE: {mape_err:.1f}% - {ai_badge})")
+____m6.metric("AI Dự đoán", f"{predicted_price:,.0f} đ", f"{pct_change:+.2f}% (MAPE {mape_err:.1f}% - {ai_badge})")
 ____st.subheader(f"🤖 Kết Luận Đồng Nhất: {sig['trang_thai']}")
 ____if "BẪY GIÁ" in sig["trang_thai"] or "CẢNH BÁO BÁN" in sig["trang_thai"]:
 ________st.error(f"Phân tích chi tiết: {sig['ly_do']}")
@@ -434,15 +510,15 @@ ____st.markdown("#### 🎯 Kế hoạch giao dịch & Quản trị rủi ro theo
 ____p1, p2, p3 = st.columns(3)
 ____p1.info(f"Vùng mua hợp lý (Sát nền MA20):\n\n{latest_ma20:,.0f} đ – {latest_ma20 * 1.05:,.0f} đ")
 ____p2.success(f"Mục tiêu BÁN Chốt lời (Kháng cự / +3 ATR):\n\n{gia_chot_loi:,.0f} đ ({pct_chot_loi:+.1f}%)")
-____p3.error(f"Mốc BÁN Cắt lỗ kỹ thuật (Dưới hỗ trợ):\n\nThủng {gia_cat_lo:,.0f} đ ({pct_cat_lo:+.1f}%)")
-____st.markdown("#### 📊 Kiểm thử định lượng chiến lược trên 150 phiên gần nhất (Đã trừ 0,3% phí):")
+____p3.error(f"Mốc BÁN Cắt lỗ kỹ thuật (Dưới hỗ trợ / ST):\n\nThủng {gia_cat_lo:,.0f} đ ({pct_cat_lo:+.1f}%)")
+____st.markdown("#### 📊 Kiểm thử định lượng chiến lược trên 150 phiên gần nhất (Khóa ST Xanh + ADX ≥ 22, trừ 0,3% phí):")
 ____b1, b2, b3, b4 = st.columns(4)
 ____b1.metric("Số lệnh / Tỷ lệ thắng", f"{bt['total_trades']} lệnh", f"Win Rate: {bt['win_rate']:.1f}%")
 ____b2.metric("Lợi nhuận ròng chiến lược", f"{bt['net_profit']:+.2f}%")
 ____b3.metric("Hệ số Profit Factor", f"{bt['profit_factor']:.2f}", "Tốt (>1.5)" if bt['profit_factor'] > 1.5 else "Trung bình", delta_color="off")
 ____b4.metric("Sụt giảm tối đa (Max DD)", f"{bt['max_dd']:.2f}%", delta_color="inverse")
 ____ngay_moi_nhat = df_clean['time'].iloc[-1]
-____st.subheader(f"Biểu đồ kỹ thuật {symbol} — Mây Ichimoku (Hiện tại & Tương lai 26P) (Đến: {ngay_moi_nhat})")
+____st.subheader(f"Biểu đồ kỹ thuật {symbol} — SuperTrend & Mây Ichimoku (Đến: {ngay_moi_nhat})")
 ____df_plot = df_clean.tail(100).copy().reset_index(drop=True)
 ____future_dates = [f"+{k}P" for k in range(1, 27)]
 ____future_span_a = df['Span_A_Raw'].tail(26).tolist()
@@ -450,9 +526,13 @@ ____future_span_b = df['Span_B_Raw'].tail(26).tolist()
 ____x_cloud = df_plot['time'].tolist() + future_dates
 ____y_span_a = df_plot['Senkou_A'].tolist() + future_span_a
 ____y_span_b = df_plot['Senkou_B'].tolist() + future_span_b
+____st_bull = np.where(df_plot['ST_Dir'] == 1, df_plot['SuperTrend'], np.nan)
+____st_bear = np.where(df_plot['ST_Dir'] == -1, df_plot['SuperTrend'], np.nan)
 ____fig = go.Figure()
 ____fig.add_trace(go.Candlestick(x=df_plot['time'], open=df_plot['open'], high=df_plot['high'], low=df_plot['low'], close=df_plot['close'], name='Giá nến'))
 ____fig.add_trace(go.Scatter(x=df_plot['time'], y=df_plot['MA20'], line=dict(color='orange', width=1.5), name='MA20 (Nền hỗ trợ)'))
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bull, line=dict(color='#00C853', width=2.2), name='SuperTrend (Tăng)'))
+____fig.add_trace(go.Scatter(x=df_plot['time'], y=st_bear, line=dict(color='#FF1744', width=2.2), name='SuperTrend (Giảm)'))
 ____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_a, line=dict(color='rgba(0, 200, 100, 0.45)', width=1), name='Senkou A (Kéo 26P)'))
 ____fig.add_trace(go.Scatter(x=x_cloud, y=y_span_b, line=dict(color='rgba(255, 80, 80, 0.45)', width=1), fill='tonexty', fillcolor='rgba(144, 238, 144, 0.18)', name='Mây Ichimoku'))
 ____fig.add_hline(y=gia_chot_loi, line_dash="dot", line_color="green", annotation_text="Mục tiêu Chốt lời")
@@ -471,16 +551,20 @@ ____________return None
 ________last = df_ma.iloc[-1]
 ________curr_p = float(last['close'])
 ________sig = evaluate_stock_signals(df_ma, ai_pct_change=0.0, ai_is_reliable=False)
+________st_txt = "🟢 Xanh" if sig["st_dir"] == 1 else "🔴 Đỏ"
 ________return {
 ____________"Mã CP": ma,
 ____________"Giá hiện tại (đ)": round(curr_p, 0),
 ____________"Cắt lỗ (đ)": round(sig["cat_lo"], 0),
 ____________"Chốt lời (đ)": round(sig["chot_loi"], 0),
 ____________"Tỷ lệ R:R": f"{sig['rr_ratio']} : 1",
+____________"SuperTrend": st_txt,
+____________"ADX (+DI/-DI)": f"{sig['adx']:.0f} ({sig['plus_di']:.0f}/{sig['minus_di']:.0f})",
+____________"Stoch %K": f"{sig['stoch_k']:.0f}",
 ____________"Cách nền MA20": f"{sig['dist_ma20_pct']:+.1f}%",
 ____________"Tỷ lệ Vol (%)": f"{float(last['Vol_Ratio']):.0f}%",
 ____________"Điểm Số": int(sig['buy_score']),
-____________"Điểm Mua": f"{sig['buy_score']}/4",
+____________"Điểm Mua": f"{sig['buy_score']}/5",
 ____________"Khuyến nghị": sig["trang_thai"],
 ____________"Phân tích & Lý do chi tiết": sig["ly_do"]
 ________}
@@ -537,13 +621,13 @@ ____if run_btn and symbol:
 ________with st.spinner(f"Đang phân tích chuyên sâu & chạy Backtest cho mã {symbol}..."):
 ____________analyze_one_stock(symbol, days_history, epochs)
 with tab2:
-____st.subheader("Quét Xu Hướng Tăng, Dòng Tiền, Điểm Mua Sát Nền & Tỷ Lệ R:R")
+____st.subheader("Quét Xu Hướng Tăng (ST Xanh + ADX ≥ 22), Dòng Tiền, Stochastic & R:R")
 ____c_filter1, c_filter2, c_filter3 = st.columns((2, 1.5, 1.5))
 ____nhom_chon = c_filter1.selectbox("Chọn nhóm cổ phiếu / chế độ quét:", list(DANH_MUC_NHOM.keys()))
 ____ma_rieng = c_filter2.text_input("Thêm mã riêng (cách nhau dấu phẩy):", placeholder="VD: BSR, KBC, VGC").upper().strip()
 ____che_do_loc = c_filter3.selectbox("Bộ lọc hiển thị trạng thái:", (
 ________"📋 Hiển thị TẤT CẢ (Mua + Bán + Chờ chỉnh + Đứng ngoài)",
-________"🟢 Chỉ hiện Tín hiệu MUA ĐẸP & Bùng nổ Vol (R:R ≥ 1.5)",
+________"🟢 Chỉ hiện Tín hiệu MUA ĐẸP & Bùng nổ Vol (ST Xanh + ADX ≥ 22)",
 ________"🔴 Chỉ hiện Cảnh báo BÁN / Chốt lời / Bẫy giá",
 ________"⏳ Chỉ hiện Qua điểm mua (Chờ chỉnh) & Sideway"
 ____))
@@ -585,9 +669,7 @@ ________else:
 ____________st.warning("Không thể tải dữ liệu lúc này. Vui lòng thử lại sau ít phút.")
 with tab3:
 ____st.subheader("📝 Nhật Ký Thực Chiến (Cho phép Nhập & Chỉnh Sửa Trực Tiếp)")
-____st.write("Bạn có thể **nhập thông số khớp lệnh thực tế** bên dưới, hoặc **bấm đúp chuột trực tiếp vào từng ô trên bảng** để chỉnh sửa Giá vào, Cắt lỗ, Chốt lời, Ngày đóng và Ghi chú.")
-
-____# 1. Form nhập lệnh mới (Cho phép tự nhập giá khớp thực tế hoặc để 0 để tự lấy giá thị trường)
+____st.write("Bạn có thể nhập thông số khớp lệnh thực tế bên dưới, hoặc bấm đúp chuột trực tiếp vào từng ô trên bảng để chỉnh sửa Giá vào, Cắt lỗ, Chốt lời, Ngày đóng và Ghi chú.")
 ____with st.form("form_them_ma"):
 ________fc1, fc2, fc3, fc4, fc5 = st.columns((1.2, 1.3, 1.3, 1.3, 2))
 ________ma_luu = fc1.text_input("Mã CP (*):", placeholder="VD: POW, HAG").upper().strip()
@@ -596,7 +678,6 @@ ________cat_lo_tay = fc3.number_input("Cắt lỗ (đ) (0=Tự tính):", min_val
 ________chot_loi_tay = fc4.number_input("Chốt lời (đ) (0=Tự tính):", min_value=0, value=0, step=50)
 ________ghi_chu = fc5.text_input("Ghi chú:", value="Điểm mua chuẩn R:R >= 1.5")
 ________submit_luu = st.form_submit_button("➕ Thêm lệnh vào Nhật ký", type="primary")
-
 ____if submit_luu and ma_luu:
 ________info_ma = scan_single_stock(ma_luu)
 ________now_str = (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d')
@@ -614,18 +695,15 @@ ________________"Giá đóng tay (đ)": 0.0,
 ________________"Ngày đóng": "",
 ________________"Ghi chú": ghi_chu
 ____________})
-____________st.success(f"Đã lưu lệnh **{ma_luu}** (Giá vào: {g_vao:,.0f} đ) vào nhật ký!")
+____________st.success(f"Đã lưu lệnh {ma_luu} (Giá vào: {g_vao:,.0f} đ) vào nhật ký!")
 ________else:
 ____________st.error(f"Không lấy được dữ liệu của mã {ma_luu}. Bạn hãy tự nhập Giá vào (đ) ở ô bên cạnh nhé!")
-
-____# 2. Bảng chỉnh sửa trực tiếp (Data Editor) cho các thông số đầu vào
 ____if st.session_state.nhat_ky_lenh:
 ________st.markdown("#### ✏️ Bảng điều chỉnh thông số lệnh (Bấm đúp vào ô bất kỳ để sửa, chọn dòng và nhấn Delete để xóa):")
 ________df_edit_input = pd.DataFrame(st.session_state.nhat_ky_lenh)
 ________for col_req in ["Ngày vào", "Mã CP", "Giá vào (đ)", "Cắt lỗ (đ)", "Chốt lời (đ)", "Giá đóng tay (đ)", "Ngày đóng", "Ghi chú"]:
 ____________if col_req not in df_edit_input.columns:
 ________________df_edit_input[col_req] = 0.0 if "(đ)" in col_req else ""
-
 ________edited_df = st.data_editor(
 ____________df_edit_input,
 ____________num_rows="dynamic",
@@ -639,13 +717,10 @@ ________________"Giá đóng tay (đ)": st.column_config.NumberColumn(help="Nh�
 ____________}
 ________)
 ________st.session_state.nhat_ky_lenh = edited_df.to_dict('records')
-
-________# 3. Bảng tổng hợp chấm điểm tự động & Tính Lãi/Lỗ ròng
 ________st.markdown("#### 📊 Kết quả chấm điểm & Lãi/Lỗ thực tế (Đã trừ 0,3% thuế phí):")
 ________bang_cham_diem = []
 ________so_lenh_thang = 0
 ________tong_lenh_xac_dinh = 0
-
 ________for item in st.session_state.nhat_ky_lenh:
 ____________ma_cp = str(item.get("Mã CP", "")).upper().strip()
 ____________if not ma_cp:
@@ -656,10 +731,8 @@ ____________cat_lo = float(item.get("Cắt lỗ (đ)", 0) or 0)
 ____________chot_loi = float(item.get("Chốt lời (đ)", 0) or 0)
 ____________gia_dong_tay = float(item.get("Giá đóng tay (đ)", 0) or 0)
 ____________ngay_dong_tay = str(item.get("Ngày đóng", "")).strip()
-
 ____________if gia_vao <= 0:
 ________________continue
-
 ____________if gia_dong_tay > 0:
 ________________gia_khop = gia_dong_tay
 ________________ngay_dong = ngay_dong_tay if ngay_dong_tay else (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d')
@@ -668,15 +741,12 @@ ____________else:
 ________________gia_khop, ket_qua, ngay_dong = check_journal_trade_history(ma_cp, ngay_vao, gia_vao, cat_lo, chot_loi)
 ________________if ngay_dong_tay:
 ____________________ngay_dong = ngay_dong_tay
-
 ____________lai_lo_rong = ((gia_khop - gia_vao) / gia_vao) * 100 - 0.3
-
 ____________if "ĐẠT CHỐT LỜI" in ket_qua or "CHỐT TAY" in ket_qua:
 ________________so_lenh_thang += 1
 ________________tong_lenh_xac_dinh += 1
 ____________elif "CHẠM CẮT LỖ" in ket_qua or "CẮT TAY" in ket_qua:
 ________________tong_lenh_xac_dinh += 1
-
 ____________bang_cham_diem.append({
 ________________"Ngày vào": ngay_vao,
 ________________"Mã CP": ma_cp,
@@ -689,7 +759,6 @@ ________________"Lãi/Lỗ ròng (%)": f"{lai_lo_rong:+.2f}%",
 ________________"Trạng thái": ket_qua,
 ________________"Ghi chú": item.get("Ghi chú", "")
 ____________})
-
 ________if bang_cham_diem:
 ____________df_nk = pd.DataFrame(bang_cham_diem)
 ____________st.dataframe(df_nk, use_container_width=True, hide_index=True)

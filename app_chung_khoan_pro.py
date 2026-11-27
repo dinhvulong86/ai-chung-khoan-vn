@@ -662,7 +662,6 @@ ____fig.update_xaxes(type='category', tickangle=-45, nticks=42)
 ____fig.update_layout(xaxis_rangeslider_visible=False, height=560, hovermode='x unified')
 ____st.plotly_chart(fig, use_container_width=True)
 def quick_ai_next_session(df_clean: pd.DataFrame) -> tuple:
-____"""Dự đoán nhanh tỷ lệ % tăng/giảm phiên tiếp theo bằng MLPRegressor gọn nhẹ cho Tab 2"""
 ____try:
 ________features = ('close', 'volume', 'MA20', 'RSI', 'MFI', 'MACD', 'ADX', 'OBV')
 ________raw_values = df_clean.loc[:, features].tail(120).values

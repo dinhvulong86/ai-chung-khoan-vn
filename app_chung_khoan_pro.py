@@ -66,7 +66,7 @@ def get_stock_data(symbol: str, days: int = 500) -> pd.DataFrame:
         }
         res_vci = requests.post(url_vci, json=payload_vci, headers=headers_vci, timeout=8).json()
         if isinstance(res_vci, list) and len(res_vci) > 0:
-            d = res_vci.pop(0)
+            d = res_vci[0]
             if isinstance(d, dict) and d.get('t') and len(d.get('t')) >= 30:
                 df = pd.DataFrame({
                     'time': pd.to_datetime(pd.to_numeric(d.get('t')), unit='s').strftime('%Y-%m-%d'),
@@ -204,7 +204,7 @@ def get_dynamic_top_tickers(fallback_list):
         items = res.get('data', [])
         tickers = [x['ticker'] for x in items if x.get('ticker') and len(x['ticker']) == 3]
         if len(tickers) >= 30:
-return tickers
+            return tickers
 except Exception:
 pass
 return list(fallback_list)

@@ -730,7 +730,7 @@ ____col1, col2, col3, col4, col5, col6 = st.columns((1.2, 1.1, 1.1, 1.3, 1.0, 1.
 ____symbol = col1.text_input("Mã CP (HOSE/HNX/UPCOM):", value="MBS").upper().strip()
 ____days_history = col2.selectbox("Dữ liệu học (ngày):", (300, 500, 730, 1000), index=2)
 ____epochs = col3.selectbox("Vòng học AI:", (80, 150, 250), index=1)
-____nav_von = col4.number_input("Tổng vốn NAV (VNĐ):", min_value=10000000, value=100000000, step=10000000)
+____nav_von = col4.number_input("Tổng vốn NAV (VNĐ):", min_value=1000000, value=10000000, step=1000000, format="%d")
 ____risk_pct = col5.number_input("Rủi ro/lệnh (%):", min_value=0.5, max_value=10.0, value=2.0, step=0.5)
 ____col6.write("")
 ____col6.write("")

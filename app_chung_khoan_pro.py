@@ -209,7 +209,7 @@ def get_dynamic_top_tickers(fallback_list):
         pass
     return list(fallback_list)
 
---- TÍNH CHỈ BÁO KỸ THUẬT + OBV + NHẬN DIỆN PHÂN KỲ RSI ---
+# --- TÍNH CHỈ BÁO KỸ THUẬT + OBV + NHẬN DIỆN PHÂN KỲ RSI ---
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 df = df.copy()
